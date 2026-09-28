@@ -1,0 +1,7 @@
+chronos-forecasting>=2.3
+toto-models>=1.0
+torch>=2.5
+numpy
+pandas[pyarrow]>=2.0
+yfinance
+matplotlib
