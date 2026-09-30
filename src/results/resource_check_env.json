@@ -5,8 +5,8 @@
     "CPU": "n/a",
     "Kerne (logisch/physisch)": "12 / 10",
     "RAM total": "31.7 GiB",
-    "RAM frei (verf\u00fcgbar)": "14.2 GiB",
-    "Disk frei (~)": "391.8 GiB"
+    "RAM frei (verf\u00fcgbar)": "11.4 GiB",
+    "Disk frei (~)": "388.5 GiB"
   },
   "device": {
     "chronos": "cpu",
@@ -14,6 +14,9 @@
     "moirai": "cpu"
   },
   "checkpoints_mb": {
-    "amazon/chronos-2": 0.0
+    "amazon/chronos-2": 0.0,
+    "autogluon/chronos-2-small": 0.0,
+    "google/timesfm-2.5-200m-pytorch": 0.0,
+    "Salesforce/moirai-2.0-R-small": 0.0
   }
 }

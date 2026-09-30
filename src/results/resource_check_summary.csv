@@ -1,8 +1,15 @@
 Experte,Schritt,Status,Zeit [s],Peak RSS [MB],ΔRSS [MB],Notiz
-Chronos-2,load,ok,2.59,949.2,472.7,amazon/chronos-2
-Chronos-2,forecast 1 Serie,ok,0.279,952.8,5.2,
-Chronos-2,forecast 32 Serien,ok,2.436,1016.6,26.7,
-Chronos-2,forecast Finanzpanel,ok,2.219,1011.9,3.6,
-TimesFM-2.5,load,FEHLER,0.002,982.0,0.0,google/timesfm-2.5-200m-pytorch
-Moirai-2.0,load,FEHLER,0.001,982.0,0.0,Salesforce/moirai-2.0-R-small
-ALLE,Ensemble-Pass 32 Serien,ok,2.252,1011.4,-0.5,
+Chronos-2,load,ok,1.052,836.6,461.2,amazon/chronos-2
+Chronos-2,forecast 1 Serie,ok,0.068,836.0,4.3,
+Chronos-2,forecast 32 Serien,ok,0.963,896.6,25.8,
+Chronos-2,forecast Finanzpanel,ok,0.943,898.5,22.9,
+TimesFM-2.5,load,ok,27.098,2498.4,882.1,google/timesfm-2.5-200m-pytorch
+TimesFM-2.5,compile,ok,0.0,1767.0,0.0,ctx=512 hor=64
+TimesFM-2.5,forecast 1 Serie,ok,1.687,1964.0,162.6,
+TimesFM-2.5,forecast 32 Serien,ok,1.647,1980.4,8.4,
+TimesFM-2.5,forecast Finanzpanel,ok,1.655,1973.9,2.5,
+Moirai-2.0,load,ok,2.849,2018.1,34.3,Salesforce/moirai-2.0-R-small
+Moirai-2.0,forecast 1 Serie,FEHLER,0.062,1976.7,3.0,"ValueError: not enough values to unpack (expected 3, got 1)"
+Moirai-2.0,forecast 32 Serien,FEHLER,0.14,1993.4,13.5,ValueError: too many values to unpack (expected 3)
+Moirai-2.0,forecast Finanzpanel,FEHLER,0.117,1994.9,-0.0,ValueError: too many values to unpack (expected 3)
+ALLE,Ensemble-Pass 32 Serien,FEHLER,3.479,2023.3,29.8,ValueError: too many values to unpack (expected 3)

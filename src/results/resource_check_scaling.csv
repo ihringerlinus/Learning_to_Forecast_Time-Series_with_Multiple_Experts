@@ -1,4 +1,10 @@
 Experte,Batch,Zeit [s],ms/Serie
-Chronos-2,1,0.1771,177.14
-Chronos-2,8,0.7102,88.77
-Chronos-2,32,2.7003,84.38
+Chronos-2,1,0.0806,80.63
+TimesFM-2.5,1,2.6005,2600.53
+Moirai-2.0,1,,
+Chronos-2,8,0.5476,68.45
+TimesFM-2.5,8,2.1893,273.67
+Moirai-2.0,8,,
+Chronos-2,32,1.2787,39.96
+TimesFM-2.5,32,2.132,66.62
+Moirai-2.0,32,,
