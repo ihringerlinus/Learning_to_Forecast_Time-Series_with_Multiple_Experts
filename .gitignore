@@ -2,7 +2,7 @@
 .venv/
 
 # data directory
-data/
+src/data/
 
 # Python cache
 __pycache__/
