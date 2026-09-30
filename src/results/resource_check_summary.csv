@@ -1,0 +1,8 @@
+Experte,Schritt,Status,Zeit [s],Peak RSS [MB],ΔRSS [MB],Notiz
+Chronos-2,load,ok,2.59,949.2,472.7,amazon/chronos-2
+Chronos-2,forecast 1 Serie,ok,0.279,952.8,5.2,
+Chronos-2,forecast 32 Serien,ok,2.436,1016.6,26.7,
+Chronos-2,forecast Finanzpanel,ok,2.219,1011.9,3.6,
+TimesFM-2.5,load,FEHLER,0.002,982.0,0.0,google/timesfm-2.5-200m-pytorch
+Moirai-2.0,load,FEHLER,0.001,982.0,0.0,Salesforce/moirai-2.0-R-small
+ALLE,Ensemble-Pass 32 Serien,ok,2.252,1011.4,-0.5,

@@ -1,0 +1,19 @@
+{
+  "env": {
+    "Python": "3.12.4",
+    "Platform": "Windows 11 (AMD64)",
+    "CPU": "n/a",
+    "Kerne (logisch/physisch)": "12 / 10",
+    "RAM total": "31.7 GiB",
+    "RAM frei (verf\u00fcgbar)": "14.2 GiB",
+    "Disk frei (~)": "391.8 GiB"
+  },
+  "device": {
+    "chronos": "cpu",
+    "timesfm": "cpu",
+    "moirai": "cpu"
+  },
+  "checkpoints_mb": {
+    "amazon/chronos-2": 0.0
+  }
+}
