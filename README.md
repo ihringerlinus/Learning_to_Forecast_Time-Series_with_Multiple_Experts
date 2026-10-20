@@ -418,17 +418,6 @@ Gemessen werden Ladezeit, Peak-RAM, Inferenzlatenz pro Batchgrösse und das Outp
 
 ---
 
-## 12. Prototyp (`prototype.py`)
-
-Erster Test der Foundation Models, unabhängig von der Hauptpipeline:
-
-- Daten: S&P 500 (`^GSPC`) über `yfinance`, ab 2015
-- Zielgrösse: **absolute Tages-Log-Renditen** als einfacher Volatilitäts-Proxy (noch nicht RV)
-- Modelle: Chronos-2 und Toto 2.0 (313M), zero-shot, Kontext 512 Tage
-- Prognose der letzten 20 Tage, Vergleich per MAE mit einer naiven Baseline (Mittel der letzten 20 Tage)
-- Plot: `prognose.png`
-
----
 
 ## 13. Konfigurationsparameter
 
