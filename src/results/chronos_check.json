@@ -1,0 +1,7 @@
+{
+  "abweichung": {
+    "autogluon/chronos-2-small": 0.0,
+    "amazon/chronos-2": 0.08440953606596055
+  },
+  "variante": "autogluon/chronos-2-small"
+}
