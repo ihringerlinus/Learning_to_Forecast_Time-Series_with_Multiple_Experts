@@ -20,9 +20,10 @@ Bachelorprojekt (HSG). Mehrere Prognosemodelle ("Experten") sagen die tägliche 
 10. [Evaluation und Metriken](#10-evaluation-und-metriken)
 11. [Resource Check](#11-resource-check-00_resource_checkipynb)
 12. [TimesFM-2.5 und Chronos-Check](#12-timesfm-25-und-chronos-check-02_timesfmipynb)
-13. [Konfigurationsparameter](#13-konfigurationsparameter)
-14. [Stand, Einschränkungen und nächste Schritte](#14-stand-einschränkungen-und-nächste-schritte)
-15. [Glossar](#15-glossar)
+13. [Live-Prognose-App](#13-live-prognose-app-app)
+14. [Konfigurationsparameter](#14-konfigurationsparameter)
+15. [Stand, Einschränkungen und nächste Schritte](#15-stand-einschränkungen-und-nächste-schritte)
+16. [Glossar](#16-glossar)
 
 ---
 
@@ -59,6 +60,9 @@ STUFE 2  (01_kombination.ipynb)
 ├── README.md
 ├── requirements.txt
 ├── prognose.png                  Plot aus einem frühen Prototyp (Chronos-2 + Toto, S&P 500)
+├── app/
+│   ├── app.py                    Live-Prognose-App (Streamlit), siehe Abschnitt 13
+│   └── .streamlit/config.toml    Farben und Darstellung der App
 ├── reports/
 │   └── zwischenstand.html        Zwischenbericht mit Grafiken und Ergebnissen
 └── src/
@@ -95,6 +99,8 @@ pip install -r requirements.txt
 > pip install arch scipy requests tqdm psutil
 > # für 02_timesfm.ipynb:
 > pip install timesfm
+> # für die Live-Prognose-App:
+> pip install streamlit
 > # nur für den Resource Check (Moirai):
 > pip install uni2ts gluonts
 > ```
@@ -109,6 +115,7 @@ Die Notebooks verwenden relative Pfade (`data/`, `results/`) und müssen deshalb
 | 1 | `volatilitaet_chronos2_har_garch.ipynb` | lädt die Binance-Daten herunter, berechnet die RV, lässt RW, HAR, GARCH und Chronos-2 laufen, speichert die Prognosen | einmalig länger, danach Cache |
 | 2 | `02_timesfm.ipynb` | TimesFM-2.5 und Chronos-2 (voll) auf denselben Ursprüngen, Chronos-Check, Auswertung der Einzelmodelle | ca. 45 Min. auf CPU (einmalig) |
 | 3 | `01_kombination.ipynb` | trainiert und evaluiert die Kombinationen | Sekunden bis Minuten |
+| 4 (optional) | `app/app.py` | Live-Prognose mit den neuesten Daten (Abschnitt 13) | ca. 1 Min. pro Klick |
 
 Die Reihenfolge der Dateinamen (01 vor 02) entspricht nicht der Ausführungsreihenfolge: `02_timesfm.ipynb` erzeugt Prognosen, die `01_kombination.ipynb` braucht.
 
@@ -534,14 +541,85 @@ Gelernte statische Gewichte:
 | HAR | 0.00 | 0.03 |
 | GARCH | 0.07 | 0.20 |
 
-- **Statische Gewichte schlagen jedes Einzelmodell** (ca. 2 % bei h=1, 4 % bei h=5). Signifikant nur für SOL, h=1 (DM p = 0.006).
+- **Statische Gewichte sind mindestens so gut wie das beste Einzelmodell.** Im Durchschnitt über die Coins ist ihr QLIKE ca. 2 % (h=1) bzw. 4 % (h=5) tiefer als der des besten Einzelmodells. Das gilt aber nicht bei jedem Coin (BTC h=5: Chronos voll allein besser; SOL h=1: gleichauf mit TimesFM) und nicht beim Pinball h=1 (TimesFM 0.730 gegen Statisch 0.740). Diebold-Mariano: Statisch gegen TimesFM nirgends signifikant, gegen Chronos voll nur bei SOL h=1 (p = 0.006). Ein klarer Gewinn ist also nicht belegt. Der praktische Vorteil: Man muss nicht im Voraus wissen, welches Einzelmodell das beste ist (bei h=1 TimesFM, bei h=5 Chronos).
 - **GARCH bekommt trotz der schlechtesten Einzelleistung Gewicht**, HAR fast keines. GARCH macht *andere* Fehler als die Foundation Models, HAR liegt zu nah an beiden Gruppen. Ein Experte lohnt sich in der Kombination nicht, weil er gut ist, sondern weil er anders falsch liegt.
 - **Das lineare Gate ist nicht verlässlich besser als Statisch.** Der Vorsprung bei h=1 kommt fast nur von ETH, bei BTC und SOL ist das Gate schlechter. Diebold-Mariano Gate gegen Statisch: nirgends signifikant (alle p ≥ 0.14). Das Gate wählt bei h=1 das kleinste λ, und λ wird auf val gewählt. Das Ergebnis ist deshalb optimistisch. Beim Pinball ist das Gate schlechter als Statisch (0.752 gegen 0.740).
 - **Das MLP** wählt so starke Regularisierung, dass es exakt zu Statisch wird.
 
 ---
 
-## 13. Konfigurationsparameter
+## 13. Live-Prognose-App (`app/`)
+
+Die Notebooks bewerten Prognosen für vergangene Tage. Die App macht **echte Prognosen für die Zukunft**: Auf Knopfdruck lädt sie die neuesten Binance-Daten und prognostiziert die Volatilität für den nächsten Tag und in 5 Tagen. Zusätzlich zeigt sie den Kurs und eine **Kursspanne**, die aus der Vola-Prognose abgeleitet ist.
+
+### Starten
+
+```bash
+.venv\Scripts\activate
+pip install streamlit          # einmalig
+cd app
+streamlit run app.py
+```
+
+Die App öffnet sich im Browser. Voraussetzung: `02_timesfm.ipynb` ist einmal gelaufen (die App braucht die Prognosen von `Chronos-2-full` und `TimesFM-2.5` in `src/results/`, um die statischen Gewichte zu bestimmen).
+
+### Was die App macht
+
+Ein Klick auf **«Daten laden und Prognose berechnen»**:
+
+1. **Neue Daten laden:** 5-Minuten-Kerzen seit dem letzten bekannten Tag über die öffentliche Binance-API (`data-api.binance.vision`, ohne Schlüssel). Fällt sie aus, werden die Tagesdateien von `data.binance.vision` geladen. Der heutige UTC-Tag ist unvollständig und wird weggelassen.
+2. **RV berechnen:** exakt wie `daily_rv` in Notebook 1. Geprüft: Für August 2026 ergibt die App dieselben Werte wie die gespeicherten Daten (Abweichung 0).
+3. **Experten rechnen** mit dem letzten Tag als Ursprung: RW, HAR, GARCH (Code aus Notebook 1), Chronos-2 voll und TimesFM-2.5 (Setup aus `02_timesfm.ipynb`). RW und HAR sind identisch zu Notebook 1 (Abweichung ca. 10⁻¹⁵). GARCH weicht um 1–3 % ab, weil Notebook 1 nur alle 5 Tage neu schätzt und die App jedes Mal frisch.
+4. **Kombinieren** mit den statischen Gewichten aus train (bis 31.10.2025), gleiche Zielfunktion wie «Statisch» in `01_kombination.ipynb`. Die App findet dieselben Gewichte wie das Notebook. Fällt ein Experte aus (z.B. Modell nicht ladbar), werden die übrigen neu gewichtet und die App zeigt einen Hinweis.
+5. **Kursspanne berechnen** aus der kombinierten Vola-Prognose und dem letzten Schlusskurs (siehe unten).
+6. **Im Logbuch speichern**, Vola-Prognose und Kursspanne getrennt.
+
+Beim ersten Klick werden die Modelle geladen (ca. 30 Sekunden), danach geht es schneller.
+
+### Ansichten
+
+| Reiter | Inhalt |
+|---|---|
+| Bitcoin / Ethereum / Solana | zuletzt gemessene Vola, Prognose 1 und 5 Tage voraus mit 90-%-Bereich, Verlauf der letzten 90 Tage; Schlusskurs und Kursspanne mit Kursverlauf; Vergleich aller Modelle |
+| Logbuch | alle gespeicherten Vola-Prognosen und Kursspannen; sobald der Zieltag vorbei ist, mit tatsächlichem Wert, QLIKE und Trefferquote im 90-%-Bereich |
+| Methode | kurze Erklärung und die statischen Gewichte |
+
+Angezeigt wird die **annualisierte Volatilität** $\sqrt{365 \cdot RV}$ in Prozent, weil sie leichter zu lesen ist als die RV.
+
+### Kursspanne aus der Vola-Prognose
+
+Die Richtung des Kurses ist praktisch nicht vorhersagbar, seine Schwankungsbreite schon. Die App prognostiziert deshalb nicht den Kurs selbst, sondern eine **Spanne**, in der er mit 90 % (bzw. 50 %) Wahrscheinlichkeit liegen wird.
+
+- **Grundlage:** Die RV eines Tages misst die Varianz der Tagesrendite. Gegeben die Varianz *v* ist die Tagesrendite ungefähr $N(0, v)$.
+- **Unsicherheit der Vola:** Statt einer einzigen Varianz wird über die 21 Quantile der kombinierten RV-Prognose gemischt (Gewichte wie beim Mittelwert). Sind sich die Modelle bei der Vola unsicher, wird die Kursspanne breiter.
+- **5 Tage:** Die Varianzen der Tage 1 bis 5 werden addiert. Die Tage 2 bis 4 werden in Logs zwischen der 1- und der 5-Tages-Prognose interpoliert; gleiche Quantile werden addiert, weil die RV stark persistent ist.
+- **Mitte:** Der letzte Schlusskurs, also keine Annahme über die Richtung.
+- **Kurse:** Tages-Schlusskurse (UTC) von Binance, `src/data/live/<COIN>_price.parquet`. Geprüft: Die Renditen aus diesen Schlusskursen sind identisch mit `ret` aus der RV-Berechnung.
+
+**Rückblick auf train und val** (Testperiode ausgeschlossen), kombinierte statische Prognose:
+
+| | Treffer 90-%-Spanne | Treffer 50-%-Spanne | Breite 90 % | Breite 90 % mit historischer 22-Tage-Vola |
+|---|---|---|---|---|
+| train, 1 Tag | 89.7 % | 53.5 % | 12.2 % | 12.9 % |
+| train, 5 Tage | 88.3 % | 51.5 % | 27.6 % | 29.0 % |
+| val, 1 Tag | 88.6 % | 53.3 % | 11.1 % | 11.5 % |
+| val, 5 Tage | 88.6 % | 50.8 % | 24.8 % | 25.8 % |
+
+Die Spannen sind gut kalibriert und bei ähnlicher Trefferquote 3–5 % schmaler als eine Spanne aus der historischen Vola. Die Spanne ist eine Schwankungsbreite, keine Anlageempfehlung.
+
+### Schutz der Forschungsdaten
+
+- `src/data/<COIN>_daily.parquet` und `src/results/` werden **nur gelesen**. Neue Tage, Kurse und die Logbücher liegen in `src/data/live/` (wie `src/data/` nicht in Git).
+- Die statischen Gewichte kommen nur aus train.
+- Das Logbuch wertet nur Zieltage **nach** der Testperiode aus (ab 01.09.2026). Die Testperiode wird damit nicht informell geöffnet.
+
+### Das Logbuch als saubere Evaluation
+
+Jede Prognose wird gespeichert, **bevor** der Zieltag eintritt. Kontamination ist damit ausgeschlossen, auch für Modelle, die nach der Testperiode erschienen sind (z.B. t0, Timestral). Nach einigen Monaten regelmässiger Klicks entsteht so eine echte Out-of-Sample-Periode. Ein Klick pro Tag genügt. Mehrere Klicks am selben Datenstand überschreiben sich, statt doppelt zu zählen.
+
+---
+
+## 14. Konfigurationsparameter
 
 ### Notebook 1 (`volatilitaet_chronos2_har_garch.ipynb`)
 
@@ -589,7 +667,7 @@ Gelernte statische Gewichte:
 
 ---
 
-## 14. Stand, Einschränkungen und nächste Schritte
+## 15. Stand, Einschränkungen und nächste Schritte
 
 Details und Grafiken: `reports/zwischenstand.html`.
 
@@ -597,8 +675,8 @@ Details und Grafiken: `reports/zwischenstand.html`.
 
 **Mit 4 Experten (aktueller Stand, Details in Abschnitt 12):**
 
-- **Statische Gewichte schlagen jedes Einzelmodell** um ca. 2–4 % (auf val, signifikant nur für SOL bei h=1).
-- **Das Gate bringt darüber hinaus keinen statistisch nachweisbaren Gewinn.** Der Vorsprung des linearen Gates bei h=1 hängt fast nur an ETH. Das MLP wird zu Statisch.
+- **Statische Gewichte sind mindestens so gut wie das beste Einzelmodell:** im Durchschnitt ca. 2–4 % tieferer QLIKE, aber nicht bei jedem Coin und kaum signifikant (siehe Abschnitt 12).
+- **Das Gate bringt darüber hinaus keinen statistisch nachweisbaren Gewinn** (Diebold-Mariano gegen Statisch: alle p ≥ 0.14). Der Vorsprung des linearen Gates bei h=1 hängt fast nur an ETH. Das MLP wird zu Statisch.
 - **Die Experten bilden zwei Gruppen:** Foundation Models (Fehlerkorrelation 0.98–0.99) und Ökonometrie (0.84–0.93). Der Nutzen der Kombination entsteht durch die Diversität zwischen den Gruppen, nicht durch tägliches Routing.
 - Die bisherigen Chronos-Prognosen und alle Chronos-Zahlen im Zwischenbericht stammen von `chronos-2-small`. Ab jetzt wird `Chronos-2-full` verwendet.
 
@@ -636,7 +714,7 @@ Details und Grafiken: `reports/zwischenstand.html`.
 
 ---
 
-## 15. Glossar
+## 16. Glossar
 
 | Begriff | Bedeutung |
 |---|---|
