@@ -14,3 +14,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# abgeleitete Ergebnisse der Pipeline (in Sekunden bis Minuten neu erzeugt)
+src/results/panels/
+src/results/forecasts/

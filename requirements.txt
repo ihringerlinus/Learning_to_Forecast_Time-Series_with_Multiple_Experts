@@ -6,3 +6,8 @@ pandas[pyarrow]>=2.0
 yfinance
 matplotlib
 streamlit>=1.50
+arch
+scipy
+requests
+tqdm
+jupyter

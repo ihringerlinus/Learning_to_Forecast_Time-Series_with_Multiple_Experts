@@ -1,0 +1,89 @@
+h,fold,Methode,lam
+1,2025-11-01,Gleichgewicht,
+1,2025-11-01,Auswahl,
+1,2025-11-01,Inverse Fehler,
+1,2025-11-01,Inverse Fehler 90T,
+1,2025-11-01,Inverse jüngste Fehler,
+1,2025-11-01,Statisch,
+1,2025-11-01,Statisch 365T,
+1,2025-11-01,Gating linear,0.01
+1,2025-11-01,Gating linear [recent],0.0001
+1,2025-11-01,Gating linear [market],0.0001
+1,2025-11-01,Gating MLP,0.001
+1,2025-12-01,Gleichgewicht,
+1,2025-12-01,Auswahl,
+1,2025-12-01,Inverse Fehler,
+1,2025-12-01,Inverse Fehler 90T,
+1,2025-12-01,Inverse jüngste Fehler,
+1,2025-12-01,Statisch,
+1,2025-12-01,Statisch 365T,
+1,2025-12-01,Gating linear,0.001
+1,2025-12-01,Gating linear [recent],0.001
+1,2025-12-01,Gating linear [market],0.0001
+1,2025-12-01,Gating MLP,0.001
+1,2026-01-01,Gleichgewicht,
+1,2026-01-01,Auswahl,
+1,2026-01-01,Inverse Fehler,
+1,2026-01-01,Inverse Fehler 90T,
+1,2026-01-01,Inverse jüngste Fehler,
+1,2026-01-01,Statisch,
+1,2026-01-01,Statisch 365T,
+1,2026-01-01,Gating linear,0.001
+1,2026-01-01,Gating linear [recent],0.0001
+1,2026-01-01,Gating linear [market],0.0001
+1,2026-01-01,Gating MLP,0.001
+1,2026-02-01,Gleichgewicht,
+1,2026-02-01,Auswahl,
+1,2026-02-01,Inverse Fehler,
+1,2026-02-01,Inverse Fehler 90T,
+1,2026-02-01,Inverse jüngste Fehler,
+1,2026-02-01,Statisch,
+1,2026-02-01,Statisch 365T,
+1,2026-02-01,Gating linear,0.001
+1,2026-02-01,Gating linear [recent],0.001
+1,2026-02-01,Gating linear [market],0.0001
+1,2026-02-01,Gating MLP,0.001
+5,2025-11-01,Gleichgewicht,
+5,2025-11-01,Auswahl,
+5,2025-11-01,Inverse Fehler,
+5,2025-11-01,Inverse Fehler 90T,
+5,2025-11-01,Inverse jüngste Fehler,
+5,2025-11-01,Statisch,
+5,2025-11-01,Statisch 365T,
+5,2025-11-01,Gating linear,0.001
+5,2025-11-01,Gating linear [recent],0.01
+5,2025-11-01,Gating linear [market],0.001
+5,2025-11-01,Gating MLP,0.0001
+5,2025-12-01,Gleichgewicht,
+5,2025-12-01,Auswahl,
+5,2025-12-01,Inverse Fehler,
+5,2025-12-01,Inverse Fehler 90T,
+5,2025-12-01,Inverse jüngste Fehler,
+5,2025-12-01,Statisch,
+5,2025-12-01,Statisch 365T,
+5,2025-12-01,Gating linear,0.001
+5,2025-12-01,Gating linear [recent],0.01
+5,2025-12-01,Gating linear [market],0.001
+5,2025-12-01,Gating MLP,0.001
+5,2026-01-01,Gleichgewicht,
+5,2026-01-01,Auswahl,
+5,2026-01-01,Inverse Fehler,
+5,2026-01-01,Inverse Fehler 90T,
+5,2026-01-01,Inverse jüngste Fehler,
+5,2026-01-01,Statisch,
+5,2026-01-01,Statisch 365T,
+5,2026-01-01,Gating linear,0.01
+5,2026-01-01,Gating linear [recent],0.01
+5,2026-01-01,Gating linear [market],0.01
+5,2026-01-01,Gating MLP,0.01
+5,2026-02-01,Gleichgewicht,
+5,2026-02-01,Auswahl,
+5,2026-02-01,Inverse Fehler,
+5,2026-02-01,Inverse Fehler 90T,
+5,2026-02-01,Inverse jüngste Fehler,
+5,2026-02-01,Statisch,
+5,2026-02-01,Statisch 365T,
+5,2026-02-01,Gating linear,0.01
+5,2026-02-01,Gating linear [recent],1.0
+5,2026-02-01,Gating linear [market],0.001
+5,2026-02-01,Gating MLP,0.01

@@ -1,0 +1,119 @@
+{
+  "DATASET": "syn_regime_signal_s0",
+  "SIDS": [
+    "SYN00",
+    "SYN01",
+    "SYN02"
+  ],
+  "SYNTHETIC": true,
+  "QUANTILES": [
+    0.01,
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95,
+    0.99
+  ],
+  "QCOLS": [
+    "q0.01",
+    "q0.05",
+    "q0.10",
+    "q0.15",
+    "q0.20",
+    "q0.25",
+    "q0.30",
+    "q0.35",
+    "q0.40",
+    "q0.45",
+    "q0.50",
+    "q0.55",
+    "q0.60",
+    "q0.65",
+    "q0.70",
+    "q0.75",
+    "q0.80",
+    "q0.85",
+    "q0.90",
+    "q0.95",
+    "q0.99"
+  ],
+  "SPLIT": "walkforward",
+  "RUN": "syn_regime_signal_s0_walkforward",
+  "ALLOW_TEST": false,
+  "EVAL_START": null,
+  "EVAL_END": null,
+  "FREQ": "QS",
+  "TRAIN_START": null,
+  "WINDOW_DAYS": null,
+  "TUNE_DAYS": 90,
+  "GAP_DAYS": 0,
+  "TRAIN_END": "2025-10-31",
+  "VAL_END": "2026-02-28",
+  "ALPHA": 1.0,
+  "LAMBDAS": [
+    0.0001,
+    0.001,
+    0.01,
+    0.1,
+    1.0
+  ],
+  "MLP": true,
+  "MLP_HIDDEN": 16,
+  "MLP_SEEDS": 3,
+  "ABLATIONS": [
+    [
+      "recent"
+    ],
+    [
+      "market"
+    ],
+    [
+      "exo"
+    ]
+  ],
+  "LEGACY": false,
+  "POOL": [
+    "HAR",
+    "GARCH",
+    "RW"
+  ],
+  "METHODS": [
+    "Method(name='Gleichgewicht', make=<class '__main__.Equal'>, grid={})",
+    "Method(name='Auswahl', make=<class '__main__.BestSingle'>, grid={})",
+    "Method(name='Inverse Fehler', make=<class '__main__.InverseLoss'>, grid={})",
+    "Method(name='Inverse Fehler 90T', make=functools.partial(<class '__main__.InverseLoss'>, window_days=90), grid={})",
+    "Method(name='Inverse j\u00fcngste Fehler', make=<class '__main__.RecentInverseLoss'>, grid={})",
+    "Method(name='Statisch', make=functools.partial(<class '__main__.Gate'>, groups=()), grid={})",
+    "Method(name='Statisch 365T', make=functools.partial(<class '__main__.Gate'>, groups=(), window_days=365), grid={})",
+    "Method(name='Gating linear', make=<class '__main__.Gate'>, grid={'lam': [0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [recent]', make=functools.partial(<class '__main__.Gate'>, groups=('recent',)), grid={'lam': [0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [market]', make=functools.partial(<class '__main__.Gate'>, groups=('market',)), grid={'lam': [0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [exo]', make=functools.partial(<class '__main__.Gate'>, groups=('exo',)), grid={'lam': [0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating MLP', make=functools.partial(<class '__main__.Gate'>, hidden=16, seeds=3), grid={'lam': [0.0001, 0.001, 0.01, 0.1, 1.0]})"
+  ],
+  "M": 3,
+  "panel": {
+    "legacy": false,
+    "halflives": [
+      10,
+      60
+    ],
+    "level": "relative",
+    "drop_redundant": true
+  }
+}

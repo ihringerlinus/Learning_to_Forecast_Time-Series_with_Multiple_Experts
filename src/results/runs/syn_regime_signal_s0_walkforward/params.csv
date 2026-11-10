@@ -1,0 +1,241 @@
+h,fold,Methode,lam
+1,2020-08-24,Gleichgewicht,
+1,2020-08-24,Auswahl,
+1,2020-08-24,Inverse Fehler,
+1,2020-08-24,Inverse Fehler 90T,
+1,2020-08-24,Inverse jüngste Fehler,
+1,2020-08-24,Statisch,
+1,2020-08-24,Statisch 365T,
+1,2020-08-24,Gating linear,0.0001
+1,2020-08-24,Gating linear [recent],0.001
+1,2020-08-24,Gating linear [market],0.0001
+1,2020-08-24,Gating linear [exo],0.0001
+1,2020-08-24,Gating MLP,0.0001
+1,2020-10-01,Gleichgewicht,
+1,2020-10-01,Auswahl,
+1,2020-10-01,Inverse Fehler,
+1,2020-10-01,Inverse Fehler 90T,
+1,2020-10-01,Inverse jüngste Fehler,
+1,2020-10-01,Statisch,
+1,2020-10-01,Statisch 365T,
+1,2020-10-01,Gating linear,0.0001
+1,2020-10-01,Gating linear [recent],0.0001
+1,2020-10-01,Gating linear [market],0.0001
+1,2020-10-01,Gating linear [exo],0.0001
+1,2020-10-01,Gating MLP,0.0001
+1,2021-01-01,Gleichgewicht,
+1,2021-01-01,Auswahl,
+1,2021-01-01,Inverse Fehler,
+1,2021-01-01,Inverse Fehler 90T,
+1,2021-01-01,Inverse jüngste Fehler,
+1,2021-01-01,Statisch,
+1,2021-01-01,Statisch 365T,
+1,2021-01-01,Gating linear,0.0001
+1,2021-01-01,Gating linear [recent],0.0001
+1,2021-01-01,Gating linear [market],0.0001
+1,2021-01-01,Gating linear [exo],0.0001
+1,2021-01-01,Gating MLP,0.001
+1,2021-04-01,Gleichgewicht,
+1,2021-04-01,Auswahl,
+1,2021-04-01,Inverse Fehler,
+1,2021-04-01,Inverse Fehler 90T,
+1,2021-04-01,Inverse jüngste Fehler,
+1,2021-04-01,Statisch,
+1,2021-04-01,Statisch 365T,
+1,2021-04-01,Gating linear,0.001
+1,2021-04-01,Gating linear [recent],0.001
+1,2021-04-01,Gating linear [market],0.0001
+1,2021-04-01,Gating linear [exo],0.0001
+1,2021-04-01,Gating MLP,0.001
+1,2021-07-01,Gleichgewicht,
+1,2021-07-01,Auswahl,
+1,2021-07-01,Inverse Fehler,
+1,2021-07-01,Inverse Fehler 90T,
+1,2021-07-01,Inverse jüngste Fehler,
+1,2021-07-01,Statisch,
+1,2021-07-01,Statisch 365T,
+1,2021-07-01,Gating linear,0.001
+1,2021-07-01,Gating linear [recent],0.001
+1,2021-07-01,Gating linear [market],1.0
+1,2021-07-01,Gating linear [exo],0.001
+1,2021-07-01,Gating MLP,0.001
+1,2021-10-01,Gleichgewicht,
+1,2021-10-01,Auswahl,
+1,2021-10-01,Inverse Fehler,
+1,2021-10-01,Inverse Fehler 90T,
+1,2021-10-01,Inverse jüngste Fehler,
+1,2021-10-01,Statisch,
+1,2021-10-01,Statisch 365T,
+1,2021-10-01,Gating linear,0.0001
+1,2021-10-01,Gating linear [recent],0.0001
+1,2021-10-01,Gating linear [market],0.0001
+1,2021-10-01,Gating linear [exo],0.0001
+1,2021-10-01,Gating MLP,0.0001
+1,2022-01-01,Gleichgewicht,
+1,2022-01-01,Auswahl,
+1,2022-01-01,Inverse Fehler,
+1,2022-01-01,Inverse Fehler 90T,
+1,2022-01-01,Inverse jüngste Fehler,
+1,2022-01-01,Statisch,
+1,2022-01-01,Statisch 365T,
+1,2022-01-01,Gating linear,1.0
+1,2022-01-01,Gating linear [recent],0.001
+1,2022-01-01,Gating linear [market],0.001
+1,2022-01-01,Gating linear [exo],0.0001
+1,2022-01-01,Gating MLP,0.1
+1,2022-04-01,Gleichgewicht,
+1,2022-04-01,Auswahl,
+1,2022-04-01,Inverse Fehler,
+1,2022-04-01,Inverse Fehler 90T,
+1,2022-04-01,Inverse jüngste Fehler,
+1,2022-04-01,Statisch,
+1,2022-04-01,Statisch 365T,
+1,2022-04-01,Gating linear,0.0001
+1,2022-04-01,Gating linear [recent],0.001
+1,2022-04-01,Gating linear [market],0.0001
+1,2022-04-01,Gating linear [exo],0.0001
+1,2022-04-01,Gating MLP,0.0001
+1,2022-07-01,Gleichgewicht,
+1,2022-07-01,Auswahl,
+1,2022-07-01,Inverse Fehler,
+1,2022-07-01,Inverse Fehler 90T,
+1,2022-07-01,Inverse jüngste Fehler,
+1,2022-07-01,Statisch,
+1,2022-07-01,Statisch 365T,
+1,2022-07-01,Gating linear,0.0001
+1,2022-07-01,Gating linear [recent],0.001
+1,2022-07-01,Gating linear [market],1.0
+1,2022-07-01,Gating linear [exo],0.0001
+1,2022-07-01,Gating MLP,0.001
+1,2022-10-01,Gleichgewicht,
+1,2022-10-01,Auswahl,
+1,2022-10-01,Inverse Fehler,
+1,2022-10-01,Inverse Fehler 90T,
+1,2022-10-01,Inverse jüngste Fehler,
+1,2022-10-01,Statisch,
+1,2022-10-01,Statisch 365T,
+1,2022-10-01,Gating linear,0.1
+1,2022-10-01,Gating linear [recent],0.001
+1,2022-10-01,Gating linear [market],1.0
+1,2022-10-01,Gating linear [exo],0.01
+1,2022-10-01,Gating MLP,1.0
+5,2020-08-28,Gleichgewicht,
+5,2020-08-28,Auswahl,
+5,2020-08-28,Inverse Fehler,
+5,2020-08-28,Inverse Fehler 90T,
+5,2020-08-28,Inverse jüngste Fehler,
+5,2020-08-28,Statisch,
+5,2020-08-28,Statisch 365T,
+5,2020-08-28,Gating linear,0.0001
+5,2020-08-28,Gating linear [recent],0.0001
+5,2020-08-28,Gating linear [market],0.0001
+5,2020-08-28,Gating linear [exo],0.0001
+5,2020-08-28,Gating MLP,0.0001
+5,2020-10-01,Gleichgewicht,
+5,2020-10-01,Auswahl,
+5,2020-10-01,Inverse Fehler,
+5,2020-10-01,Inverse Fehler 90T,
+5,2020-10-01,Inverse jüngste Fehler,
+5,2020-10-01,Statisch,
+5,2020-10-01,Statisch 365T,
+5,2020-10-01,Gating linear,0.0001
+5,2020-10-01,Gating linear [recent],0.001
+5,2020-10-01,Gating linear [market],0.001
+5,2020-10-01,Gating linear [exo],0.0001
+5,2020-10-01,Gating MLP,0.001
+5,2021-01-01,Gleichgewicht,
+5,2021-01-01,Auswahl,
+5,2021-01-01,Inverse Fehler,
+5,2021-01-01,Inverse Fehler 90T,
+5,2021-01-01,Inverse jüngste Fehler,
+5,2021-01-01,Statisch,
+5,2021-01-01,Statisch 365T,
+5,2021-01-01,Gating linear,0.001
+5,2021-01-01,Gating linear [recent],0.0001
+5,2021-01-01,Gating linear [market],0.0001
+5,2021-01-01,Gating linear [exo],0.0001
+5,2021-01-01,Gating MLP,0.001
+5,2021-04-01,Gleichgewicht,
+5,2021-04-01,Auswahl,
+5,2021-04-01,Inverse Fehler,
+5,2021-04-01,Inverse Fehler 90T,
+5,2021-04-01,Inverse jüngste Fehler,
+5,2021-04-01,Statisch,
+5,2021-04-01,Statisch 365T,
+5,2021-04-01,Gating linear,0.001
+5,2021-04-01,Gating linear [recent],0.01
+5,2021-04-01,Gating linear [market],0.0001
+5,2021-04-01,Gating linear [exo],0.0001
+5,2021-04-01,Gating MLP,0.0001
+5,2021-07-01,Gleichgewicht,
+5,2021-07-01,Auswahl,
+5,2021-07-01,Inverse Fehler,
+5,2021-07-01,Inverse Fehler 90T,
+5,2021-07-01,Inverse jüngste Fehler,
+5,2021-07-01,Statisch,
+5,2021-07-01,Statisch 365T,
+5,2021-07-01,Gating linear,0.001
+5,2021-07-01,Gating linear [recent],1.0
+5,2021-07-01,Gating linear [market],0.1
+5,2021-07-01,Gating linear [exo],0.0001
+5,2021-07-01,Gating MLP,0.001
+5,2021-10-01,Gleichgewicht,
+5,2021-10-01,Auswahl,
+5,2021-10-01,Inverse Fehler,
+5,2021-10-01,Inverse Fehler 90T,
+5,2021-10-01,Inverse jüngste Fehler,
+5,2021-10-01,Statisch,
+5,2021-10-01,Statisch 365T,
+5,2021-10-01,Gating linear,0.0001
+5,2021-10-01,Gating linear [recent],0.0001
+5,2021-10-01,Gating linear [market],1.0
+5,2021-10-01,Gating linear [exo],0.001
+5,2021-10-01,Gating MLP,0.0001
+5,2022-01-01,Gleichgewicht,
+5,2022-01-01,Auswahl,
+5,2022-01-01,Inverse Fehler,
+5,2022-01-01,Inverse Fehler 90T,
+5,2022-01-01,Inverse jüngste Fehler,
+5,2022-01-01,Statisch,
+5,2022-01-01,Statisch 365T,
+5,2022-01-01,Gating linear,0.0001
+5,2022-01-01,Gating linear [recent],0.0001
+5,2022-01-01,Gating linear [market],0.1
+5,2022-01-01,Gating linear [exo],0.001
+5,2022-01-01,Gating MLP,0.0001
+5,2022-04-01,Gleichgewicht,
+5,2022-04-01,Auswahl,
+5,2022-04-01,Inverse Fehler,
+5,2022-04-01,Inverse Fehler 90T,
+5,2022-04-01,Inverse jüngste Fehler,
+5,2022-04-01,Statisch,
+5,2022-04-01,Statisch 365T,
+5,2022-04-01,Gating linear,0.001
+5,2022-04-01,Gating linear [recent],0.001
+5,2022-04-01,Gating linear [market],0.0001
+5,2022-04-01,Gating linear [exo],0.0001
+5,2022-04-01,Gating MLP,0.0001
+5,2022-07-01,Gleichgewicht,
+5,2022-07-01,Auswahl,
+5,2022-07-01,Inverse Fehler,
+5,2022-07-01,Inverse Fehler 90T,
+5,2022-07-01,Inverse jüngste Fehler,
+5,2022-07-01,Statisch,
+5,2022-07-01,Statisch 365T,
+5,2022-07-01,Gating linear,0.01
+5,2022-07-01,Gating linear [recent],1.0
+5,2022-07-01,Gating linear [market],1.0
+5,2022-07-01,Gating linear [exo],0.0001
+5,2022-07-01,Gating MLP,1.0
+5,2022-10-01,Gleichgewicht,
+5,2022-10-01,Auswahl,
+5,2022-10-01,Inverse Fehler,
+5,2022-10-01,Inverse Fehler 90T,
+5,2022-10-01,Inverse jüngste Fehler,
+5,2022-10-01,Statisch,
+5,2022-10-01,Statisch 365T,
+5,2022-10-01,Gating linear,1.0
+5,2022-10-01,Gating linear [recent],1.0
+5,2022-10-01,Gating linear [market],1.0
+5,2022-10-01,Gating linear [exo],0.0001
+5,2022-10-01,Gating MLP,1.0
