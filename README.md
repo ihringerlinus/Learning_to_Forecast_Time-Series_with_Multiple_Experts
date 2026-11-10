@@ -112,6 +112,9 @@ pip install -r requirements.txt
 > pip install timesfm
 > # für die Live-Prognose-App:
 > pip install streamlit
+> # für t0 und Timestral (03_t0_timestral.ipynb und App, optional):
+> pip install "tfc-t0[torch]>=0.6.0"
+> pip install git+https://github.com/mistralai/timestral.git
 > # nur für den Resource Check (Moirai):
 > pip install uni2ts gluonts
 > ```
@@ -663,9 +666,9 @@ Beim ersten Klick werden die Modelle geladen (ca. 30 Sekunden), danach geht es s
 
 | Reiter | Inhalt |
 |---|---|
-| Bitcoin / Ethereum / Solana | zuletzt gemessene Vola, Prognose 1 und 5 Tage voraus mit 90-%-Bereich, Verlauf der letzten 90 Tage; Schlusskurs und Kursspanne mit Kursverlauf; Vergleich aller Modelle |
-| Logbuch | alle gespeicherten Vola-Prognosen und Kursspannen; sobald der Zieltag vorbei ist, mit tatsächlichem Wert, QLIKE und Trefferquote im 90-%-Bereich |
-| Methode | kurze Erklärung und die statischen Gewichte |
+| Bitcoin / Ethereum / Solana | zuletzt gemessene Vola, Prognose 1 und 5 Tage voraus mit 90-%-Bereich, Verlauf der letzten 90 Tage; Schlusskurs und Kursspanne mit Kursverlauf; Vergleich aller Modelle; darunter separat «Neu, nur live: t0 und Timestral» |
+| Logbuch | alle gespeicherten Vola-Prognosen und Kursspannen; sobald der Zieltag vorbei ist, mit tatsächlichem Wert, QLIKE und Trefferquote im 90-%-Bereich; für t0, Timestral und die zweite Kombination ein Vergleich auf denselben Tagen |
+| Methode | kurze Erklärung, die statischen Gewichte und die Startgewichte der zweiten Kombination |
 
 Angezeigt wird die **annualisierte Volatilität** $\sqrt{365 \cdot RV}$ in Prozent, weil sie leichter zu lesen ist als die RV.
 
@@ -699,6 +702,21 @@ Die Spannen sind gut kalibriert und bei ähnlicher Trefferquote 3–5 % schmaler
 ### Das Logbuch als saubere Evaluation
 
 Jede Prognose wird gespeichert, **bevor** der Zieltag eintritt. Kontamination ist damit ausgeschlossen, auch für Modelle, die nach der Testperiode erschienen sind (z.B. t0, Timestral). Nach einigen Monaten regelmässiger Klicks entsteht so eine echte Out-of-Sample-Periode. Ein Klick pro Tag genügt. Mehrere Klicks am selben Datenstand überschreiben sich, statt doppelt zu zählen.
+
+### Neue Modelle: t0 und Timestral (nur live, `03_t0_timestral.ipynb`)
+
+**t0-gamma** (The Forecasting Company, `theforecastingcompany/t0-gamma`) und **Timestral-209M** (Mistral AI, `mistralai/Timestral-209M`) sind im September bzw. Oktober 2026 erschienen, also nach train, val und test. Einen Trainings-Cutoff nennen beide nicht. Sie könnten unsere Perioden im Pretraining gesehen haben. Deshalb gilt:
+
+- **Separat:** Sie laufen in der App nur mit, als eigene Modelle und in einer **zweiten Kombination** («Kombination neu»). Die Hauptprognose (Chronos-2, TimesFM-2.5, HAR, GARCH mit statischen Gewichten) und die Kursspanne verwenden sie nicht. Geprüft: Die Hauptprognose ist mit und ohne die neuen Modelle identisch.
+- **Keine gelernten Gewichte:** Aus der Vergangenheit lernen wir für sie nichts, weil diese Daten möglicherweise kontaminiert sind.
+- **Startgewichte der zweiten Kombination** (gesetzt, nicht gelernt): Die Foundation Models machen fast dieselben Fehler (Fehlerkorrelation 0.98). Deshalb wird ihr Gesamtanteil aus den statischen Gewichten gleichmässig auf alle vier verteilt, HAR und GARCH behalten ihr Gewicht: bei h=1 je ca. 0.23 für Chronos, TimesFM, t0 und Timestral, 0.00 HAR, 0.07 GARCH; bei h=5 je ca. 0.19, 0.03 HAR, 0.20 GARCH. Fehlt ein Foundation Model, wird sein Anteil auf die übrigen verteilt.
+- **Saubere Auswertung nur im Logbuch:** Das Logbuch vergleicht die zweite Kombination und die neuen Modelle mit der Hauptprognose auf **denselben Tagen**, weil sie erst ab ihrem Start mitlaufen.
+- **Setup wie bei Chronos und TimesFM:** log-RV, Kontext 1024 Tage, 21 Quantile (beide liefern genau dieses Raster), Mittelwert durch Integration der Quantile. t0 mit `symmetric_averaging=True` und `trim_leading_missing=True` (vom Hersteller empfohlen), Timestral mit `symmetric_averaging=True` (Default). `clip_nonnegative` ist bei beiden aus, weil die log-RV negativ ist.
+- **Optional:** Sind die Pakete nicht installiert, läuft die App wie bisher und zeigt einen Hinweis.
+
+**Inbetriebnahme:** Pakete installieren (Abschnitt 3), `03_t0_timestral.ipynb` aus `src/` ausführen. Es lädt die Gewichte von Hugging Face (zusammen ca. 2 GB), prüft Plausibilität und Laufzeit und rechnet die Prognose für den aktuellen Datenstand der App. Danach in der App neu berechnen: Die Werte für t0 und Timestral sollten mit dem Notebook übereinstimmen.
+
+Die Historie (Abschnitt 5 im Notebook, `RUN_HISTORY = True`) ist optional und gilt als möglicherweise kontaminiert. Sie schreibt `results/<COIN>__t0-gamma.parquet` und `results/<COIN>__Timestral-209M.parquet` mit `split = "kontaminiert?"`. Weder `01_kombination.ipynb` noch die App verwenden diese Dateien, solange die Modelle nicht in `POOL` stehen.
 
 ---
 
