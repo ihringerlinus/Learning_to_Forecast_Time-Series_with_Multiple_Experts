@@ -11,6 +11,10 @@ Starten (aus dem Ordner app/, in der .venv):
 
 Die Forschungsdaten in src/data/ und src/results/ werden nur gelesen, nie verändert.
 Neue Daten und das Prognose-Logbuch liegen in src/data/live/.
+
+t0 und Timestral (seit Herbst 2026) laufen nur live und separat mit: als eigene Modelle und in
+einer zweiten Kombination. Die Hauptprognose und die Kursspanne verwenden sie nicht.
+Installation und Prüfung: src/03_t0_timestral.ipynb.
 """
 
 import io
@@ -50,16 +54,28 @@ EST_WINDOW = 1000               # Notebook 1 (RW, HAR, GARCH)
 CONTEXT = 1024                  # Kontext der Foundation Models
 CHRONOS_MODEL = "amazon/chronos-2"
 TIMESFM_REPO = "google/timesfm-2.5-200m-pytorch"
+T0_REPO = "theforecastingcompany/t0-gamma"
+TIMESTRAL_REPO = "mistralai/Timestral-209M"
 
 POOL = ["Chronos-2-full", "TimesFM-2.5", "HAR", "GARCH"]    # wie 01_kombination.ipynb
 BASELINE = "RW"
 COMBO = "Kombination"
+
+# Neue Foundation Models: nur live, separat (möglicherweise kontaminiert, siehe 03_t0_timestral.ipynb)
+NEW_MODELS = ["t0-gamma", "Timestral-209M"]
+FOUNDATION = ["Chronos-2-full", "TimesFM-2.5"] + NEW_MODELS
+POOL_NEW = POOL + NEW_MODELS
+COMBO_NEW = "Kombination neu"
 TRAIN_END = "2025-10-31"        # statische Gewichte nur aus train
 TEST_END = "2026-08-31"         # Logbuch wertet nur Ziele danach aus (Testperiode bleibt unberührt)
 ALPHA = 1.0
 
 LABELS = {COMBO: "Kombination", "Chronos-2-full": "Chronos-2", "TimesFM-2.5": "TimesFM-2.5",
-          "HAR": "HAR", "GARCH": "GARCH", BASELINE: "Random Walk"}
+          "HAR": "HAR", "GARCH": "GARCH", BASELINE: "Random Walk",
+          COMBO_NEW: "Kombination mit t0 und Timestral (neu)", "t0-gamma": "t0 (neu)",
+          "Timestral-209M": "Timestral (neu)"}
+MAIN_ORDER = [COMBO] + POOL + [BASELINE]
+NEW_ORDER = [COMBO_NEW] + NEW_MODELS
 
 API_HOSTS = ["https://data-api.binance.vision", "https://api.binance.com"]
 DAILY_ZIP = "https://data.binance.vision/data/spot/daily/klines/{sym}/5m/{sym}-5m-{day}.zip"
@@ -67,6 +83,7 @@ DAILY_ZIP = "https://data.binance.vision/data/spot/daily/klines/{sym}/5m/{sym}-5
 # Farben (dataviz-Referenzpalette)
 INK, INK_2, MUTED, GRID = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 BLUE, BLUE_SOFT = "#2a78d6", "#cde2fb"
+ORANGE = "#c2601d"                 # zweite Kombination (neu)
 
 _LV = np.asarray(QUANTILES)
 _QMASS = (np.r_[_LV[1:], 1.0] - np.r_[0.0, _LV[:-1]]) / 2
@@ -356,6 +373,57 @@ def timesfm_forecast(rv, model):
     return out
 
 
+# Neue Foundation Models: Setup wie in 03_t0_timestral.ipynb (log-RV, Kontext 1024, 21 Quantile)
+@st.cache_resource(show_spinner=False)
+def load_t0():
+    from t0 import T0Forecaster
+    return T0Forecaster.from_pretrained(T0_REPO).eval()
+
+
+@st.cache_resource(show_spinner=False)
+def load_timestral():
+    import torch
+    from timestral import TimestralForecaster
+    model = TimestralForecaster.from_pretrained(TIMESTRAL_REPO, device="cuda" if torch.cuda.is_available() else "cpu")
+    levels = np.asarray(model.quantile_levels, float)
+    if len(levels) != len(_LV) or not np.allclose(levels, _LV):
+        raise ValueError(f"Timestral liefert andere Quantilstufen als erwartet: {tuple(levels)}")
+    return model
+
+
+def _as_numpy(x):
+    return x.detach().float().cpu().numpy() if hasattr(x, "detach") else np.asarray(x, float)
+
+
+def _finish_log_quantiles(log_q):
+    # (H, 21) Log-Quantile -> {h: (mean, q)}, Rücktransformation wie bei Chronos und TimesFM
+    out = {}
+    for h in HORIZONS:
+        q = np.sort(np.exp(np.asarray(log_q[h - 1], float)))
+        out[h] = (mean_from_quantiles(q), q)
+    return out
+
+
+def t0_forecast(rv, model):
+    ctx = np.log(rv).astype(np.float32)[-CONTEXT:][None, :]
+    res = model.predict(ctx, horizon=max(HORIZONS), quantile_levels=QUANTILES,
+                        trim_leading_missing=True, symmetric_averaging=True,
+                        clip_nonnegative=False, snap_integers=False)
+    return _finish_log_quantiles(_as_numpy(res.quantiles).reshape(max(HORIZONS), len(QUANTILES)))
+
+
+def timestral_forecast(rv, model):
+    ctx = np.log(rv).astype(np.float32)[-CONTEXT:][None, None, :]
+    res = model.forecast(ctx, prediction_length=max(HORIZONS), symmetric_averaging=True, clip_nonnegative=False)
+    return _finish_log_quantiles(_as_numpy(res.quantiles)[0, 0])
+
+
+MODEL_FNS = {"Chronos-2-full": chronos_forecast, "TimesFM-2.5": timesfm_forecast,
+             "t0-gamma": t0_forecast, "Timestral-209M": timestral_forecast}
+MODEL_LOADERS = {"Chronos-2-full": load_chronos, "TimesFM-2.5": load_timesfm,
+                 "t0-gamma": load_t0, "Timestral-209M": load_timestral}
+
+
 # =====================================================================================
 # Statische Gewichte: wie "Statisch" in 01_kombination.ipynb, nur aus train
 # =====================================================================================
@@ -396,6 +464,17 @@ def static_weights():
     return weights
 
 
+def new_weights(w_static, avail):
+    # Startgewichte der zweiten Kombination: Der Anteil der Foundation Models aus den statischen
+    # Gewichten wird gleichmässig auf alle verfügbaren Foundation Models verteilt (sie machen fast
+    # dieselben Fehler), HAR und GARCH behalten ihr Gewicht. Nicht gelernt, nur gesetzt.
+    fm_share = float(w_static[[m for m in FOUNDATION if m in w_static.index]].sum())
+    fm_avail = [m for m in FOUNDATION if m in avail]
+    w = pd.Series({m: (fm_share / len(fm_avail) if m in FOUNDATION else float(w_static.get(m, 0.0)))
+                   for m in avail})
+    return w / w.sum()
+
+
 def load_research_scale(sid):
     d = pd.read_parquet(DATA_DIR / f"{sid}_daily.parquet")
     sc = d["rv"].rolling(22).mean()
@@ -413,7 +492,7 @@ def forecast_coin(sym, d, models, price=None):
         results["GARCH"] = garch_forecast(rv, ret)
     except Exception as e:
         errors["GARCH"] = str(e)
-    for name, fn in [("Chronos-2-full", chronos_forecast), ("TimesFM-2.5", timesfm_forecast)]:
+    for name, fn in MODEL_FNS.items():
         if models.get(name) is None:
             errors[name] = models.get(f"{name}_error", "nicht geladen")
             continue
@@ -426,17 +505,29 @@ def forecast_coin(sym, d, models, price=None):
     w_all = static_weights()
     rows, combo_q_by_h = [], {}
     for h in HORIZONS:
+        # Hauptprognose: nur der bisherige Pool, statische Gewichte (unverändert)
         avail = [m for m in POOL if m in results]
         w = w_all[h][avail]
         w = w / w.sum()                                              # falls ein Experte fehlt
         combo_mean = sum(w[m] * results[m][h][0] for m in avail)
         combo_q = sum(w[m] * results[m][h][1] for m in avail)
         combo_q_by_h[h] = np.asarray(combo_q, float)
-        for m, (mean, q) in [(m, results[m][h]) for m in results] + [(COMBO, (combo_mean, combo_q))]:
+        extra = [(COMBO, (combo_mean, combo_q))]
+
+        # Zweite Kombination (separat): nur wenn mindestens eines der neuen Modelle gerechnet wurde
+        avail_new = [m for m in POOL_NEW if m in results]
+        w_new = pd.Series(dtype=float)
+        if any(m in results for m in NEW_MODELS):
+            w_new = new_weights(w_all[h], avail_new)
+            extra.append((COMBO_NEW, (sum(w_new[m] * results[m][h][0] for m in avail_new),
+                                      sum(w_new[m] * results[m][h][1] for m in avail_new))))
+
+        for m, (mean, q) in [(m, results[m][h]) for m in results] + extra:
             rows.append({"sid": sym, "origin": origin, "h": h, "target_date": origin + pd.Timedelta(days=h),
                          "model": m, "mean": float(mean), **dict(zip(QCOLS, np.asarray(q, float))),
                          "weight": float(w.get(m, np.nan)) if m in POOL else np.nan,
-                         "n_experts": len(avail)})
+                         "weight_new": float(w_new.get(m, np.nan)),
+                         "n_experts": len(avail_new) if m == COMBO_NEW else len(avail)})
 
     price_rows = []
     if price is not None and origin in price.index:
@@ -517,13 +608,15 @@ def qlike(y, f):
 
 def run_update(progress):
     models = {}
-    progress.write("Lade Modelle (beim ersten Mal ca. 30 Sekunden) …")
-    for name, loader in [("Chronos-2-full", load_chronos), ("TimesFM-2.5", load_timesfm)]:
+    progress.write("Lade Modelle (beim ersten Mal ca. 30–60 Sekunden) …")
+    for name, loader in MODEL_LOADERS.items():
         try:
             models[name] = loader()
+        except ModuleNotFoundError as e:
+            models[name], models[f"{name}_error"] = None, f"Paket nicht installiert ({e.name}), siehe 03_t0_timestral.ipynb"
         except Exception as e:
             models[name], models[f"{name}_error"] = None, str(e)
-    all_rows, price_rows, report = [], [], []
+    all_rows, price_rows, report, new_errors = [], [], [], {}
     for sym, label in SYMBOLS.items():
         progress.write(f"{label}: neue Daten laden …")
         try:
@@ -545,8 +638,13 @@ def run_update(progress):
                                       "deshalb gibt es diesmal keine Kursspanne."))
         report.append(("info", f"{label}: {n_new} neue Tage, Daten bis {d.index[-1]:%d.%m.%Y}."))
         for m, err in errors.items():
-            report.append(("warning", f"{label}: {LABELS.get(m, m)} fehlt in dieser Prognose ({err}). "
-                                      "Die Kombination wurde mit den übrigen Experten neu gewichtet."))
+            if m in NEW_MODELS:
+                new_errors.setdefault(m, err)
+            else:
+                report.append(("warning", f"{label}: {LABELS.get(m, m)} fehlt in dieser Prognose ({err}). "
+                                          "Die Kombination wurde mit den übrigen Experten neu gewichtet."))
+    for m, err in new_errors.items():
+        report.append(("warning", f"{LABELS.get(m, m)} fehlt ({err}). Die Hauptprognose ist davon nicht betroffen."))
     write_log(pd.concat(all_rows, ignore_index=True))
     write_price_log(pd.concat(price_rows, ignore_index=True))
     return report
@@ -631,16 +729,19 @@ def history_chart(d, fc, days=90):
     return (rule + line + hover + band + pts + label).properties(height=320).configure_view(strokeWidth=0)
 
 
-def model_chart(fc, h):
-    order = [COMBO] + POOL + [BASELINE]
-    c = fc[fc["h"] == h].copy()
+def model_chart(fc, h, order=MAIN_ORDER, weight_col="weight"):
+    c = fc[(fc["h"] == h) & fc["model"].isin(order)].copy()
+    role = np.select([c["model"] == COMBO, c["model"] == COMBO_NEW], ["Kombination", "Kombination neu"], "Experte")
     c = c.assign(Modell=c["model"].map(LABELS), Vola=vol(c["mean"]), Von=vol(c["q0.05"]), Bis=vol(c["q0.95"]),
-                 Rolle=np.where(c["model"] == COMBO, "Kombination", "Experte"))
-    c["Gewicht"] = c["weight"].map(lambda w: "–" if pd.isna(w) else pct(w))
+                 Rolle=role)
+    wcol = c[weight_col] if weight_col in c else pd.Series(np.nan, index=c.index)
+    c["Gewicht"] = wcol.map(lambda w: "–" if pd.isna(w) else pct(w))
     sort = [LABELS[m] for m in order if m in set(c["model"])]
     axis = dict(labelColor=MUTED, titleColor=INK_2, gridColor=GRID, domainColor="#c3c2b7", tickColor="#c3c2b7")
-    y = alt.Y("Modell:N", sort=sort, title=None, axis=alt.Axis(labelColor=INK_2, labelFontSize=12, domain=False, ticks=False))
-    color = alt.Color("Rolle:N", scale=alt.Scale(domain=["Kombination", "Experte"], range=[BLUE, MUTED]), legend=None)
+    y = alt.Y("Modell:N", sort=sort, title=None, axis=alt.Axis(labelColor=INK_2, labelFontSize=12, domain=False,
+                                                                ticks=False, labelLimit=320))
+    color = alt.Color("Rolle:N", scale=alt.Scale(domain=["Kombination", "Kombination neu", "Experte"],
+                                                 range=[BLUE, ORANGE, MUTED]), legend=None)
     tip = [alt.Tooltip("Modell:N"), alt.Tooltip("Vola:Q", title="Erwartet (%)", format=".0f"),
            alt.Tooltip("Von:Q", title="90 % ab (%)", format=".0f"), alt.Tooltip("Bis:Q", title="90 % bis (%)", format=".0f"),
            alt.Tooltip("Gewicht:N", title="Gewicht")]
@@ -652,20 +753,37 @@ def model_chart(fc, h):
     return (rng + pt).properties(height=34 * len(sort)).configure_view(strokeWidth=0)
 
 
-def model_table(fc):
+def model_table(fc, order=MAIN_ORDER, weight_col="weight"):
     rows = []
-    for m in [COMBO] + POOL + [BASELINE]:
+    for m in order:
         r = fc[fc["model"] == m]
         if r.empty:
             continue
         row = {"Modell": LABELS[m]}
         for h, name in [(1, "1 Tag"), (5, "5 Tage")]:
             x = r[r["h"] == h].iloc[0]
+            w = x.get(weight_col, np.nan)
             row[f"Erwartet {name}"] = f"{vol(x['mean']):.0f} %"
             row[f"90 %-Bereich {name}"] = f"{vol(x['q0.05']):.0f} – {vol(x['q0.95']):.0f} %"
-            row[f"Gewicht {name}"] = pct(x["weight"]) if m in POOL else "–"
+            row[f"Gewicht {name}"] = "–" if pd.isna(w) else pct(w)
         rows.append(row)
     return pd.DataFrame(rows).set_index("Modell")
+
+
+def new_models_section(sym, fc, h):
+    st.subheader("Neu, nur live: t0 und Timestral", divider=False)
+    if not fc["model"].isin(NEW_MODELS).any():
+        st.info("t0 und Timestral sind in dieser Prognose nicht dabei. Installation und Prüfung: "
+                "`src/03_t0_timestral.ipynb`. Danach neu berechnen.")
+        return
+    order = [COMBO] + NEW_ORDER
+    st.altair_chart(model_chart(fc, h, order=order, weight_col="weight_new"), width="stretch")
+    st.caption("Die beiden Modelle sind erst nach unserer Testperiode erschienen und könnten die Daten im "
+               "Training gesehen haben. Sie laufen deshalb nur mit und fliessen weder in die Hauptprognose "
+               "(blau, zum Vergleich) noch in die Kursspanne ein. Orange: zweite Kombination mit allen sechs "
+               "Experten, mit gesetzten Startgewichten (siehe «Methode»). Ob sie besser ist, zeigt das Logbuch.")
+    with st.expander("Als Tabelle anzeigen (mit allen Gewichten der zweiten Kombination)"):
+        st.dataframe(model_table(fc, order=[COMBO_NEW] + POOL + NEW_MODELS, weight_col="weight_new"), width="stretch")
 
 
 def fmt_price(x):
@@ -739,7 +857,7 @@ def coin_view(sym, log, plog):
     if fc["origin"].iloc[0] < d.index[-1]:
         st.warning(f"Die angezeigte Prognose stammt vom Datenstand {fc['origin'].iloc[0]:%d.%m.%Y}. "
                    "Es gibt neuere Daten. Berechne die Prognose neu.")
-    n_exp = int(fc["n_experts"].iloc[0])
+    n_exp = int(fc.loc[fc["model"] == COMBO, "n_experts"].iloc[0])
     if n_exp < len(POOL):
         st.warning(f"Diese Prognose beruht auf {n_exp} statt {len(POOL)} Experten.")
 
@@ -752,9 +870,23 @@ def coin_view(sym, log, plog):
     st.subheader("Was die einzelnen Modelle sagen", divider=False)
     h_choice = st.segmented_control("Horizont", ["1 Tag voraus", "5 Tage voraus"], default="1 Tag voraus",
                                     key=f"h_{sym}", label_visibility="collapsed")
-    st.altair_chart(model_chart(fc, 5 if h_choice == "5 Tage voraus" else 1), width="stretch")
+    h = 5 if h_choice == "5 Tage voraus" else 1
+    st.altair_chart(model_chart(fc, h), width="stretch")
     with st.expander("Als Tabelle anzeigen"):
         st.dataframe(model_table(fc), width="stretch")
+
+    new_models_section(sym, fc, h)
+
+
+def log_summary(done, order):
+    summ = (done.groupby("model").agg(Prognosen=("qlike", "size"), QLIKE=("qlike", "mean"),
+                                      Trefferquote=("inside", "mean"))
+            .reindex(order).dropna(how="all"))
+    summ.index = summ.index.map(LABELS)
+    summ["QLIKE"] = summ["QLIKE"].map(lambda x: f"{x:.3f}")
+    summ["Trefferquote"] = summ["Trefferquote"].map(pct)
+    summ["Prognosen"] = summ["Prognosen"].astype(int)
+    return summ.rename(columns={"Trefferquote": "Im 90-%-Bereich"})
 
 
 def logbook_view(log):
@@ -779,16 +911,17 @@ def logbook_view(log):
         n = done[done["model"] == COMBO].shape[0]
         st.markdown(f"**{n} überprüfte Prognosen der Kombination.** "
                     "Kleinerer QLIKE heisst genauer. Im 90-%-Bereich sollten etwa 90 % liegen.")
-        summ = (done.groupby("model").agg(Prognosen=("qlike", "size"), QLIKE=("qlike", "mean"),
-                                          Trefferquote=("inside", "mean"))
-                .reindex([COMBO] + POOL + [BASELINE]).dropna(how="all"))
-        summ.index = summ.index.map(LABELS)
-        summ["QLIKE"] = summ["QLIKE"].map(lambda x: f"{x:.3f}")
-        summ["Trefferquote"] = summ["Trefferquote"].map(pct)
-        summ["Prognosen"] = summ["Prognosen"].astype(int)
-        st.dataframe(summ.rename(columns={"Trefferquote": "Im 90-%-Bereich"}), width="stretch")
+        st.dataframe(log_summary(done, MAIN_ORDER), width="stretch")
         if n < 30:
             st.caption("Mit weniger als etwa 30 Prognosen pro Modell sind diese Werte noch sehr zufällig.")
+
+        new_done = done[done["model"] == COMBO_NEW]
+        if not new_done.empty:
+            st.markdown("**Neu, nur live: t0 und Timestral.** Verglichen auf denselben Tagen, also nur auf "
+                        "Prognosen, bei denen die neuen Modelle schon mitliefen.")
+            keys = new_done[["sid", "origin", "h"]].drop_duplicates()
+            same = done.merge(keys, on=["sid", "origin", "h"])
+            st.dataframe(log_summary(same, [COMBO] + NEW_ORDER + ["Chronos-2-full", "TimesFM-2.5"]), width="stretch")
 
     combo = ev[ev["model"] == COMBO].sort_values(["target_date", "sid", "h"], ascending=[False, True, True])
     table = pd.DataFrame({
@@ -860,7 +993,19 @@ lag der Kurs in 88 bis 90 % der Fälle in der 90-%-Spanne.
 
 **Was passiert mit den Forschungsdaten?** Nichts. Neue Tage und das Logbuch werden in `src/data/live/`
 gespeichert. Die Testperiode (März bis August 2026) wird nicht ausgewertet.
+
+**Was ist mit t0 und Timestral?** Die beiden Foundation Models (t0-gamma von The Forecasting Company,
+Timestral-209M von Mistral AI) sind im September bzw. Oktober 2026 erschienen, also nach unserer
+Testperiode. Sie könnten die Daten im Training gesehen haben. Deshalb lernen wir aus der Vergangenheit
+keine Gewichte für sie. Sie laufen nur mit, separat von der Hauptprognose und der Kursspanne, und werden
+über das Logbuch sauber ausgewertet, weil jede Prognose vor dem Zieltag gespeichert wird.
+
+Die **zweite Kombination** nimmt alle sechs Experten. Ihre Gewichte sind gesetzt, nicht gelernt: Die
+Foundation Models machen fast dieselben Fehler. Deshalb wird ihr bisheriger Gesamtanteil gleichmässig auf
+alle vier verteilt, HAR und GARCH behalten ihr Gewicht.
 """)
+    wn = pd.DataFrame({"1 Tag voraus": new_weights(w[1], POOL_NEW), "5 Tage voraus": new_weights(w[5], POOL_NEW)})
+    st.dataframe(wn.rename(index=LABELS).map(pct), width="stretch")
 
 
 def main():
