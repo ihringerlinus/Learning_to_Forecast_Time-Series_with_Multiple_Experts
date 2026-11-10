@@ -33,7 +33,7 @@ Die Pipeline besteht aus fünf Notebooks, eines pro Data-Science-Schritt. Sie ta
 
 ```
 01_daten        Binance oder synthetische Daten ──► tägliche RV pro Serie        data/<DATASET>.json
-02_experten     RW, EWMA, HAR, GARCH, Chronos-2, TimesFM-2.5 (Stufe 1, gecacht)   <SID>__<MODELL>.parquet
+02_experten     RW, EWMA, HAR, GARCH, Chronos-2, TimesFM-2.5, t0, Timestral       <SID>__<MODELL>.parquet
                                                  (Mittelwert + 21 Quantile pro Ursprung und Horizont)
 03_features     Prognosen + Tagesdaten ──► Features, ein Panel pro Horizont        results/panels/<DATASET>/
 04_training     Split (Walk-Forward) ──► λ wählen ──► Baselines und Gates fitten   results/runs/<RUN>/
@@ -46,6 +46,8 @@ Die Pipeline besteht aus fünf Notebooks, eines pro Data-Science-Schritt. Sie ta
 
 - **Stufe 1 (02)** ist teuer (Modelle laufen über Tausende Tage) und wird einmal gerechnet. Die Ergebnisse werden gecacht.
 - **Stufe 2 (03–05)** ist billig und arbeitet nur auf den gespeicherten Prognosen.
+
+**Gemeinsamer Code:** Experten, Features und Kombination (Panel, Loss, Baselines, Gate, Folds) stehen in `src/pipeline/`. Die Notebooks 02–04 und die App importieren denselben Code. Was in den Notebooks gilt, gilt deshalb exakt auch in der App (Abschnitt 13).
 
 Die früheren Notebooks liegen unverändert in `src/archiv/` (siehe Abschnitt 2). Mit `LEGACY = True` in 03 und 04 sowie `SPLIT = "fixed"` reproduzieren die neuen Notebooks deren Ergebnisse exakt.
 
@@ -70,18 +72,31 @@ Die früheren Notebooks liegen unverändert in `src/archiv/` (siehe Abschnitt 2)
     ├── 03_features.ipynb         Features für das Gate, ein Panel pro Horizont
     ├── 04_training.ipynb         Split, Hyperparameterwahl, Baselines und Gates fitten
     ├── 05_evaluation.ipynb       Vergleich mit Experten und Baselines, DM-Tests, Oracle
+    ├── pipeline/                 gemeinsamer Code von Notebooks und App
+    │   ├── common.py             Quantile, Horizonte, Schätzfenster (gilt für Notebooks und App)
+    │   ├── experts.py            alle Experten (02)
+    │   ├── features.py           Features und Panels (03)
+    │   ├── combine.py            Panel, Loss, Baselines, Gate, Walk-Forward-Folds (04)
+    │   └── live.py               Live-Betrieb der App: Prognosen nachführen, Monatsmodelle
     ├── archiv/                   frühere Notebooks (Zwischenbericht), durch 01–05 ersetzt
     │   ├── volatilitaet_chronos2_har_garch.ipynb
     │   ├── 02_timesfm.ipynb      inkl. Chronos-Check (Abschnitt 12)
-    │   └── 01_kombination.ipynb
+    │   ├── 01_kombination.ipynb
+    │   └── 03_t0_timestral.ipynb erste Prüfung von t0 und Timestral (heute in 02_experten)
     ├── data/                     (nicht in Git, siehe .gitignore)
     │   ├── raw/<COIN>/<COIN>-5m-YYYY-MM.zip   Binance-Monatsdateien
     │   ├── <COIN>_daily.parquet  tägliche RV, Rendite, Anzahl Bars (binance)
     │   ├── <DATASET>/            tägliche Daten anderer Datensätze (z.B. synthetisch)
-    │   └── <DATASET>.json        Beschreibung des Datensatzes (Serien, Pfade, Testsperre)
+    │   ├── <DATASET>.json        Beschreibung des Datensatzes (Serien, Pfade, Testsperre)
+    │   └── live/                 alles, was die App schreibt (Abschnitt 13)
+    │       ├── <COIN>_daily.parquet, <COIN>_price.parquet   Tagesdaten und Kurse bis gestern
+    │       ├── forecasts/<COIN>__<MODELL>.parquet          Prognosen der Experten ab Sept. 2026
+    │       ├── models/<JJJJ-MM>_h<h>.pkl                   Monatsmodelle (Statisch und Gate)
+    │       └── forecast_log.parquet, price_log.parquet     Logbücher
     └── results/
         ├── <COIN>__<MODELL>.parquet   Prognosen der Experten auf echten Daten
-        │                              (RW, EWMA, HAR, GARCH, Chronos-2, Chronos-2-full, TimesFM-2.5)
+        │                              (RW, EWMA, HAR, GARCH, Chronos-2, Chronos-2-full, TimesFM-2.5,
+        │                               optional t0-gamma, Timestral-209M)
         ├── forecasts/<DATASET>/       Prognosen der Experten auf anderen Datensätzen
         ├── panels/<DATASET>/          Panels aus 03 (h1.parquet, h5.parquet, panel.json)
         ├── runs/<RUN>/                Ergebnisse aus 04 (Prognosen, Gewichte, λ, Koeffizienten, Konfiguration)
@@ -112,7 +127,7 @@ pip install -r requirements.txt
 > pip install timesfm
 > # für die Live-Prognose-App:
 > pip install streamlit
-> # für t0 und Timestral (03_t0_timestral.ipynb und App, optional):
+> # für t0 und Timestral (02_experten.ipynb und App, optional):
 > pip install "tfc-t0[torch]>=0.6.0"
 > pip install git+https://github.com/mistralai/timestral.git
 > # nur für den Resource Check (Moirai):
@@ -304,7 +319,7 @@ Quellen: `results/runtimes.csv` und `results/runtimes_timesfm.csv`.
 
 ### Neuen Experten hinzufügen
 
-1. In `02_experten.ipynb` eine Klasse mit `name` und `forecast(s, origins)` schreiben, die `mean` und `q` im Format oben zurückgibt (Vorlage: `TimesFM25`), und sie in `EXPERTS` eintragen.
+1. In `src/pipeline/experts.py` eine Klasse mit `name` und `forecast(s, origins)` schreiben, die `mean` und `q` im Format oben zurückgibt (Vorlage: `TimesFM25`), und sie in `EXPERTS` eintragen.
 2. Den Namen in `MODELS` aufnehmen und das Notebook ausführen. Fehlende Prognosen werden gerechnet, vorhandene geladen.
 3. In `03_features.ipynb` den Namen in `POOL` eintragen. Features, Gates, Vergleiche und Auswertungen passen sich automatisch an.
 
@@ -647,28 +662,31 @@ cd app
 streamlit run app.py
 ```
 
-Die App öffnet sich im Browser. Voraussetzung: Die Prognosen von `Chronos-2-full` und `TimesFM-2.5` liegen in `src/results/` (heute aus `02_experten.ipynb`, ursprünglich aus `archiv/02_timesfm.ipynb`) Die App braucht sie, um die statischen Gewichte zu bestimmen.
+Die App öffnet sich im Browser. Voraussetzungen: die Prognosen der Experten des Pools in `src/results/` (aus `02_experten.ipynb`) und `src/results/runs/binance_walkforward/config.json` (aus `04_training.ipynb`, in Git). Aus dieser Konfiguration übernimmt die App Pool, Features, λ-Kandidaten und Tuning-Tage. Fehlt sie, gelten die Standardwerte.
 
 ### Was die App macht
 
-Ein Klick auf **«Daten laden und Prognose berechnen»**:
+Die App rechnet **mit demselben Code und derselben Logik wie der Walk-Forward in `04_training`**, nur in Echtzeit. Ein Klick auf **«Daten laden und Prognose berechnen»**:
 
-1. **Neue Daten laden:** 5-Minuten-Kerzen seit dem letzten bekannten Tag über die öffentliche Binance-API (`data-api.binance.vision`, ohne Schlüssel). Fällt sie aus, werden die Tagesdateien von `data.binance.vision` geladen. Der heutige UTC-Tag ist unvollständig und wird weggelassen.
-2. **RV berechnen:** exakt wie `daily_rv` in `01_daten.ipynb`. Geprüft: Für August 2026 ergibt die App dieselben Werte wie die gespeicherten Daten (Abweichung 0).
-3. **Experten rechnen** mit dem letzten Tag als Ursprung: RW, HAR, GARCH, Chronos-2 voll und TimesFM-2.5 (Setup wie in `02_experten.ipynb`). RW und HAR sind identisch zu den Notebooks (Abweichung ca. 10⁻¹⁵). GARCH weicht um 1–3 % ab, weil die Notebooks nur alle 5 Tage neu schätzt und die App jedes Mal frisch.
-4. **Kombinieren** mit den statischen Gewichten aus train (bis 31.10.2025), gleiche Zielfunktion wie «Statisch» in `04_training.ipynb`. Die App findet dieselben Gewichte wie das Notebook. Fällt ein Experte aus (z.B. Modell nicht ladbar), werden die übrigen neu gewichtet und die App zeigt einen Hinweis.
-5. **Kursspanne berechnen** aus der kombinierten Vola-Prognose und dem letzten Schlusskurs (siehe unten).
-6. **Im Logbuch speichern**, Vola-Prognose und Kursspanne getrennt.
+1. **Neue Daten laden:** 5-Minuten-Kerzen seit dem letzten bekannten Tag über die öffentliche Binance-API (`data-api.binance.vision`, ohne Schlüssel). Fällt sie aus, werden die Tagesdateien von `data.binance.vision` geladen. Der heutige UTC-Tag ist unvollständig und wird weggelassen. Die RV wird exakt wie `daily_rv` in `01_daten.ipynb` berechnet.
+2. **Experten nachführen:** Für jeden Ursprung nach dem Ende der Forschungsdaten (ab 27.08.2026) rechnen RW, HAR, GARCH, Chronos-2, TimesFM-2.5, t0 und Timestral ihre Prognose (Code aus `pipeline/experts.py`) und speichern sie in `src/data/live/forecasts/`. Beim ersten Klick sind das gut zwei Monate, danach nur die neuen Tage. Sobald ein Ziel bekannt ist, wird es nachgetragen.
+3. **Features:** Forschungsprognosen und Live-Prognosen werden zusammengeführt, die Features entstehen wie in `03_features` (`pipeline/features.py`).
+4. **Monatsmodell:** Für jeden Zielmonat werden **«Statisch»** und **«Gating linear»** einmal trainiert, genau wie ein Fold im Walk-Forward (`pipeline/combine.make_fold`): alle Ziele bis Monatsbeginn − h, λ auf den letzten 90 Tagen des Trainings gewählt. **Die gesperrte Testperiode (März bis August 2026) bleibt dabei aus dem Training.** Das Modell wird in `src/data/live/models/` gespeichert, alle Prognosen des Monats verwenden es. Beim ersten Klick eines neuen Monats wird neu trainiert (einige Sekunden).
+5. **Kombinieren:** Die **Hauptprognose** («Kombination») mischt Chronos-2, TimesFM-2.5, HAR und GARCH mit den Gewichten von «Statisch». Das **Gate** läuft **parallel**: Es berechnet seine Gewichte jeden Tag neu aus den Features, fliesst aber nicht in die Hauptprognose ein. Fehlt ein Experte des Pools, rechnet die Kombination mit den übrigen und den letzten statischen Gewichten, das Gate setzt dann aus.
+6. **Kursspanne** aus der Hauptprognose und dem letzten Schlusskurs (siehe unten).
+7. **Im Logbuch speichern:** Kombination, Gate, alle Experten und die zweite Kombination mit t0 und Timestral. Ein erneuter Klick am selben Datenstand ersetzt die Zeilen dieses Tages.
 
-Beim ersten Klick werden die Modelle geladen (ca. 30 Sekunden), danach geht es schneller.
+Beim ersten Klick werden die Foundation Models geladen und die Experten für die Zeit seit September nachgerechnet. Das dauert einige Minuten, danach geht es schneller.
+
+**Was die Testperiode betrifft:** Ziele von März bis August 2026 werden weder trainiert noch im Logbuch ausgewertet. Als Vergangenheit sind diese Tage aber sichtbar wie jede Historie: im Kontext der Experten und in gleitenden Features (z.B. dem Vola-Niveau der letzten 22 Tage). Für die Wahl von λ bleiben deshalb im November 2026 nur die 61 Tage September und Oktober statt 90.
 
 ### Ansichten
 
 | Reiter | Inhalt |
 |---|---|
-| Bitcoin / Ethereum / Solana | zuletzt gemessene Vola, Prognose 1 und 5 Tage voraus mit 90-%-Bereich, Verlauf der letzten 90 Tage; Schlusskurs und Kursspanne mit Kursverlauf; Vergleich aller Modelle; darunter separat «Neu, nur live: t0 und Timestral» |
-| Logbuch | alle gespeicherten Vola-Prognosen und Kursspannen; sobald der Zieltag vorbei ist, mit tatsächlichem Wert, QLIKE und Trefferquote im 90-%-Bereich; für t0, Timestral und die zweite Kombination ein Vergleich auf denselben Tagen |
-| Methode | kurze Erklärung, die statischen Gewichte und die Startgewichte der zweiten Kombination |
+| Bitcoin / Ethereum / Solana | zuletzt gemessene Vola, Prognose 1 und 5 Tage voraus mit 90-%-Bereich, Verlauf der letzten 90 Tage; Schlusskurs und Kursspanne mit Kursverlauf; Vergleich aller Modelle; darunter separat «Gate (parallel)» mit seinen heutigen Gewichten und «Neu, nur live: t0 und Timestral» |
+| Logbuch | alle gespeicherten Vola-Prognosen und Kursspannen; sobald der Zieltag vorbei ist, mit tatsächlichem Wert, QLIKE und Trefferquote im 90-%-Bereich; für das Gate und für t0, Timestral und die zweite Kombination je ein Vergleich auf denselben Tagen |
+| Methode | Erklärung des monatlichen Trainings und eine Tabelle aller Monatsmodelle (trainiert bis, Zeilen, λ des Gates, Gewichte von «Statisch») |
 
 Angezeigt wird die **annualisierte Volatilität** $\sqrt{365 \cdot RV}$ in Prozent, weil sie leichter zu lesen ist als die RV.
 
@@ -696,27 +714,25 @@ Die Spannen sind gut kalibriert und bei ähnlicher Trefferquote 3–5 % schmaler
 ### Schutz der Forschungsdaten
 
 - `src/data/<COIN>_daily.parquet` und `src/results/` werden **nur gelesen**. Neue Tage, Kurse und die Logbücher liegen in `src/data/live/` (wie `src/data/` nicht in Git).
-- Die statischen Gewichte kommen nur aus train.
+- Die Monatsmodelle trainieren nie auf Zielen der Testperiode (März bis August 2026).
 - Das Logbuch wertet nur Zieltage **nach** der Testperiode aus (ab 01.09.2026). Die Testperiode wird damit nicht informell geöffnet.
 
 ### Das Logbuch als saubere Evaluation
 
 Jede Prognose wird gespeichert, **bevor** der Zieltag eintritt. Kontamination ist damit ausgeschlossen, auch für Modelle, die nach der Testperiode erschienen sind (z.B. t0, Timestral). Nach einigen Monaten regelmässiger Klicks entsteht so eine echte Out-of-Sample-Periode. Ein Klick pro Tag genügt. Mehrere Klicks am selben Datenstand überschreiben sich, statt doppelt zu zählen.
 
-### Neue Modelle: t0 und Timestral (nur live, `03_t0_timestral.ipynb`)
+### Neue Modelle: t0 und Timestral (nur live)
 
 **t0-gamma** (The Forecasting Company, `theforecastingcompany/t0-gamma`) und **Timestral-209M** (Mistral AI, `mistralai/Timestral-209M`) sind im September bzw. Oktober 2026 erschienen, also nach train, val und test. Einen Trainings-Cutoff nennen beide nicht. Sie könnten unsere Perioden im Pretraining gesehen haben. Deshalb gilt:
 
-- **Separat:** Sie laufen in der App nur mit, als eigene Modelle und in einer **zweiten Kombination** («Kombination neu»). Die Hauptprognose (Chronos-2, TimesFM-2.5, HAR, GARCH mit statischen Gewichten) und die Kursspanne verwenden sie nicht. Geprüft: Die Hauptprognose ist mit und ohne die neuen Modelle identisch.
+- **Separat:** Sie laufen in der App nur mit, als eigene Modelle und in einer **zweiten Kombination** («Kombination neu»). Die Hauptprognose, das Gate und die Kursspanne verwenden sie nicht. Geprüft: Die Hauptprognose ist mit und ohne die neuen Modelle identisch.
 - **Keine gelernten Gewichte:** Aus der Vergangenheit lernen wir für sie nichts, weil diese Daten möglicherweise kontaminiert sind.
-- **Startgewichte der zweiten Kombination** (gesetzt, nicht gelernt): Die Foundation Models machen fast dieselben Fehler (Fehlerkorrelation 0.98). Deshalb wird ihr Gesamtanteil aus den statischen Gewichten gleichmässig auf alle vier verteilt, HAR und GARCH behalten ihr Gewicht: bei h=1 je ca. 0.23 für Chronos, TimesFM, t0 und Timestral, 0.00 HAR, 0.07 GARCH; bei h=5 je ca. 0.19, 0.03 HAR, 0.20 GARCH. Fehlt ein Foundation Model, wird sein Anteil auf die übrigen verteilt.
+- **Gewichte der zweiten Kombination** (gesetzt, nicht gelernt): Die Foundation Models machen fast dieselben Fehler (Fehlerkorrelation 0.98). Deshalb wird ihr Gesamtanteil aus den Gewichten von «Statisch» des aktuellen Monats gleichmässig auf alle vier verteilt, HAR und GARCH behalten ihr Gewicht. Fehlt ein Foundation Model, wird sein Anteil auf die übrigen verteilt.
 - **Saubere Auswertung nur im Logbuch:** Das Logbuch vergleicht die zweite Kombination und die neuen Modelle mit der Hauptprognose auf **denselben Tagen**, weil sie erst ab ihrem Start mitlaufen.
 - **Setup wie bei Chronos und TimesFM:** log-RV, Kontext 1024 Tage, 21 Quantile (beide liefern genau dieses Raster), Mittelwert durch Integration der Quantile. t0 mit `symmetric_averaging=True` und `trim_leading_missing=True` (vom Hersteller empfohlen), Timestral mit `symmetric_averaging=True` (Default). `clip_nonnegative` ist bei beiden aus, weil die log-RV negativ ist.
 - **Optional:** Sind die Pakete nicht installiert, läuft die App wie bisher und zeigt einen Hinweis.
 
-**Inbetriebnahme:** Pakete installieren (Abschnitt 3), `03_t0_timestral.ipynb` aus `src/` ausführen. Es lädt die Gewichte von Hugging Face (zusammen ca. 2 GB), prüft Plausibilität und Laufzeit und rechnet die Prognose für den aktuellen Datenstand der App. Danach in der App neu berechnen: Die Werte für t0 und Timestral sollten mit dem Notebook übereinstimmen.
-
-Die Historie (Abschnitt 5 im Notebook, `RUN_HISTORY = True`) ist optional und gilt als möglicherweise kontaminiert. Sie schreibt `results/<COIN>__t0-gamma.parquet` und `results/<COIN>__Timestral-209M.parquet` mit `split = "kontaminiert?"`. Weder `01_kombination.ipynb` noch die App verwenden diese Dateien, solange die Modelle nicht in `POOL` stehen.
+**In den Notebooks:** Beide stehen als Experten in `pipeline/experts.py` (`T0Gamma`, `Timestral`) und in `MODELS` von `02_experten`. Dort wird ihre Historie gerechnet, sobald die Pakete installiert sind. Sie gilt als möglicherweise kontaminiert. Im Standard-Pool von `03_features` sind die beiden **nicht**. Wer sie dort aufnimmt, sollte in `04_training` mit `TRAIN_START` nur auf Zielen nach ihrem Release trainieren. Die erste Prüfung (Plausibilität, Laufzeit) liegt in `archiv/03_t0_timestral.ipynb`.
 
 ---
 
@@ -741,9 +757,9 @@ Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 
 
 | Parameter | Wert | Bedeutung |
 |---|---|---|
-| `MODELS` | RW, EWMA, HAR, GARCH, Chronos-2-full, TimesFM-2.5 | Experten, deren Prognosen sichergestellt werden |
+| `MODELS` | RW, EWMA, HAR, GARCH, Chronos-2-full, TimesFM-2.5, t0-gamma, Timestral-209M | Experten, deren Prognosen sichergestellt werden (t0 und Timestral nur als Historie, nicht im Pool) |
 | `SKIP_MISSING_PACKAGES` | True | Foundation Model nicht installiert → überspringen |
-| `HORIZONS` | [1, 5] | Prognosehorizonte in Tagen |
+| `HORIZONS` | [1, 5] | Prognosehorizonte in Tagen (wie die nächsten vier: in `pipeline/common.py`, gilt auch für die App) |
 | `MIN_HISTORY` | 500 | Tage Historie vor dem ersten Ursprung |
 | `EST_WINDOW` | 1000 | rollierendes Schätzfenster für RW, EWMA, HAR, GARCH |
 | `GARCH_REFIT_EVERY` | 5 | GARCH alle 5 Ursprünge neu schätzen |
@@ -854,8 +870,9 @@ Details und Grafiken: `reports/zwischenstand.html`.
 5. **Mehr Serien und Domänen:** weitere Coins von Binance (geringer Aufwand), danach Aktien, Indizes, FX, öffentliche Benchmarks.
 6. **Längere saubere Evaluation:** Mit jedem Monat neuer Daten wird die Walk-Forward-Auswertung aussagekräftiger.
 7. **Zeitkomponente:** ~~Wochenende als Feature~~ und ~~regelmässiges Nachtrainieren~~ (erledigt). Monats-Saisonalität eher nicht (zu wenige Jahre, Overfitting-Gefahr).
-8. **Gate verfeinern:** Sparse Top-k-Gating (Shazeer et al. 2017), ein Gate über alle Horizonte mit h als Feature, Gewichte pro Quantil.
-9. **Testperiode** erst ganz am Ende öffnen (`ALLOW_TEST = True` in `04_training`, `EVAL_END = None`).
+8. ~~Gate parallel in der App~~ (erledigt: monatlich neu trainiert wie im Walk-Forward, Abschnitt 13). Nach einigen Monaten im Logbuch zeigt sich, ob es live besser ist als «Statisch».
+9. **Gate verfeinern:** Sparse Top-k-Gating (Shazeer et al. 2017), ein Gate über alle Horizonte mit h als Feature, Gewichte pro Quantil.
+10. **Testperiode** erst ganz am Ende öffnen (`ALLOW_TEST = True` in `04_training`, `EVAL_END = None`).
 
 ### Offene technische Punkte
 

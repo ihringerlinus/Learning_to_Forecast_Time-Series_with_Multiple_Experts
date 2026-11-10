@@ -2,76 +2,83 @@
 Volatilitätsprognose: Streamlit-App
 
 Lädt auf Knopfdruck die neuesten 5-Minuten-Kerzen von Binance, berechnet die tägliche
-realisierte Varianz (RV) und prognostiziert sie für heute und in 5 Tagen, mit denselben
-Experten und derselben statischen Kombination wie in den Notebooks.
+realisierte Varianz (RV) und prognostiziert sie 1 und 5 Tage voraus.
+
+Die App rechnet mit demselben Code wie die Notebooks (src/pipeline/) und wie im Walk-Forward von
+04_training: Jeden Monat werden «Statisch» (Hauptprognose) und das lineare Gate (parallel) neu
+trainiert, mit allen bis dahin bekannten Zielen. Die gesperrte Testperiode (März bis August 2026)
+bleibt dabei aus dem Training.
 
 Starten (aus dem Ordner app/, in der .venv):
 
     streamlit run app.py
 
 Die Forschungsdaten in src/data/ und src/results/ werden nur gelesen, nie verändert.
-Neue Daten und das Prognose-Logbuch liegen in src/data/live/.
+Neue Tage, Live-Prognosen der Experten, die Monatsmodelle und die Logbücher liegen in src/data/live/.
 
 t0 und Timestral (seit Herbst 2026) laufen nur live und separat mit: als eigene Modelle und in
 einer zweiten Kombination. Die Hauptprognose und die Kursspanne verwenden sie nicht.
-Installation und Prüfung: src/03_t0_timestral.ipynb.
 """
 
 import io
+import sys
 import time
 import warnings
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import NormalDist
 
 import altair as alt
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
-from scipy.optimize import minimize
 from scipy.special import ndtr
 
 warnings.filterwarnings("ignore", module="arch")
 
 # =====================================================================================
-# Konfiguration (wie in den Notebooks)
+# Konfiguration
 # =====================================================================================
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "src" / "data"
-RESULTS_DIR = ROOT / "src" / "results"
+SRC_DIR = ROOT / "src"
+DATA_DIR = SRC_DIR / "data"
+RESULTS_DIR = SRC_DIR / "results"
 LIVE_DIR = DATA_DIR / "live"
 LOG_PATH = LIVE_DIR / "forecast_log.parquet"
 
+sys.path.insert(0, str(SRC_DIR))
+from pipeline import common as C                 # noqa: E402  gemeinsamer Code mit den Notebooks
+from pipeline import experts as EX               # noqa: E402
+from pipeline import live as LV                  # noqa: E402
+
 SYMBOLS = {"BTCUSDT": "Bitcoin", "ETHUSDT": "Ethereum", "SOLUSDT": "Solana"}
-HORIZONS = [1, 5]
-QUANTILES = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
-             0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99]
-QCOLS = [f"q{q:.2f}" for q in QUANTILES]
-MIN_BARS_PER_DAY = 270          # Notebook 1
-EST_WINDOW = 1000               # Notebook 1 (RW, HAR, GARCH)
-CONTEXT = 1024                  # Kontext der Foundation Models
-CHRONOS_MODEL = "amazon/chronos-2"
-TIMESFM_REPO = "google/timesfm-2.5-200m-pytorch"
-T0_REPO = "theforecastingcompany/t0-gamma"
-TIMESTRAL_REPO = "mistralai/Timestral-209M"
+HORIZONS = C.HORIZONS
+QUANTILES, QCOLS = C.QUANTILES, C.QCOLS
+MIN_BARS_PER_DAY = 270          # wie 01_daten
 
-POOL = ["Chronos-2-full", "TimesFM-2.5", "HAR", "GARCH"]    # wie 01_kombination.ipynb
 BASELINE = "RW"
-COMBO = "Kombination"
+COMBO = "Kombination"           # Hauptprognose: «Statisch», monatlich neu trainiert
+GATE = "Gate"                   # lineares Gate, parallel, monatlich neu trainiert
+COMBO_NEW = "Kombination neu"   # mit t0 und Timestral, gesetzte Gewichte
 
-# Neue Foundation Models: nur live, separat (möglicherweise kontaminiert, siehe 03_t0_timestral.ipynb)
-NEW_MODELS = ["t0-gamma", "Timestral-209M"]
+NEW_MODELS = EX.NEW_MODELS                       # t0-gamma, Timestral-209M: nur live, separat
 FOUNDATION = ["Chronos-2-full", "TimesFM-2.5"] + NEW_MODELS
-POOL_NEW = POOL + NEW_MODELS
-COMBO_NEW = "Kombination neu"
-TRAIN_END = "2025-10-31"        # statische Gewichte nur aus train
-TEST_END = "2026-08-31"         # Logbuch wertet nur Ziele danach aus (Testperiode bleibt unberührt)
-ALPHA = 1.0
+LIVE_MODELS = [BASELINE, "HAR", "GARCH", "Chronos-2-full", "TimesFM-2.5"] + NEW_MODELS
 
-LABELS = {COMBO: "Kombination", "Chronos-2-full": "Chronos-2", "TimesFM-2.5": "TimesFM-2.5",
-          "HAR": "HAR", "GARCH": "GARCH", BASELINE: "Random Walk",
+
+@st.cache_resource(show_spinner=False)
+def settings():
+    # Pool, Features, lambdas, Tuning-Tage aus results/runs/binance_walkforward/config.json (04_training)
+    return LV.load_settings(SRC_DIR, LIVE_DIR)
+
+
+POOL = settings().pool
+POOL_NEW = POOL + [m for m in NEW_MODELS if m not in POOL]
+TEST_END = settings().test_end   # Logbuch wertet nur Ziele danach aus (Testperiode bleibt unberührt)
+
+LABELS = {COMBO: "Kombination", GATE: "Gate (linear, parallel)", "Chronos-2-full": "Chronos-2",
+          "TimesFM-2.5": "TimesFM-2.5", "HAR": "HAR", "GARCH": "GARCH", BASELINE: "Random Walk", "EWMA": "EWMA",
           COMBO_NEW: "Kombination mit t0 und Timestral (neu)", "t0-gamma": "t0 (neu)",
           "Timestral-209M": "Timestral (neu)"}
 MAIN_ORDER = [COMBO] + POOL + [BASELINE]
@@ -84,10 +91,9 @@ DAILY_ZIP = "https://data.binance.vision/data/spot/daily/klines/{sym}/5m/{sym}-5
 INK, INK_2, MUTED, GRID = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 BLUE, BLUE_SOFT = "#2a78d6", "#cde2fb"
 ORANGE = "#c2601d"                 # zweite Kombination (neu)
+TEAL = "#1d8a72"                   # Gate (parallel)
 
-_LV = np.asarray(QUANTILES)
-_QMASS = (np.r_[_LV[1:], 1.0] - np.r_[0.0, _LV[:-1]]) / 2
-_QMASS = _QMASS / _QMASS.sum()
+_QMASS = C.QMASS
 
 
 # =====================================================================================
@@ -259,209 +265,24 @@ def update_price(sym, fetch_api=fetch_price_api, fetch_zips=fetch_price_zips, no
 
 
 # =====================================================================================
-# Experten: identisch zu Notebook 1 und 02_timesfm.ipynb, für den letzten Tag als Ursprung
+# Experten und Kombination: Code aus src/pipeline (wie die Notebooks)
 # =====================================================================================
-def dist_from_log_resid(log_point, resid):
-    resid = resid[np.isfinite(resid)]
-    q = np.exp(log_point + np.quantile(resid, _LV))
-    mean = np.exp(log_point) * np.mean(np.exp(resid))
-    return mean, q
-
-
-def mean_from_quantiles(q):
-    return q @ _QMASS
-
-
-def rw_forecast(rv):
-    L, t = np.log(rv), len(rv) - 1
-    lo = max(0, t - EST_WINDOW + 1)
-    out = {}
-    for h in HORIZONS:
-        resid = L[lo + h: t + 1] - L[lo: t + 1 - h]
-        out[h] = dist_from_log_resid(L[t], resid)
-    return out
-
-
-def har_forecast(rv):
-    s = pd.Series(rv)
-    X = np.column_stack([np.ones(len(s)), np.log(s),
-                         np.log(s.rolling(5).mean()), np.log(s.rolling(22).mean())])
-    L, t = np.log(rv), len(rv) - 1
-    lo = max(21, t - EST_WINDOW + 1)
-    out = {}
-    for h in HORIZONS:
-        rows = np.arange(lo, t - h + 1)
-        beta, *_ = np.linalg.lstsq(X[rows], L[rows + h], rcond=None)
-        resid = L[rows + h] - X[rows] @ beta
-        out[h] = dist_from_log_resid(X[t] @ beta, resid)
-    return out
-
-
-def garch_forecast(rv, ret):
-    from arch import arch_model
-    t = len(rv) - 1
-    lo = max(0, t - EST_WINDOW + 1)
-    am = arch_model(100 * ret[lo: t + 1], mean="Constant", vol="GARCH", p=1, q=1, dist="t", rescale=False)
-    res = am.fit(disp="off", show_warning=False)
-    sig2_in = np.asarray(res.conditional_volatility) ** 2 / 1e4
-    sig2_fc = res.forecast(horizon=max(HORIZONS), reindex=False).variance.to_numpy()[-1] / 1e4
-    resid = np.log(rv[lo: t + 1]) - np.log(sig2_in)
-    return {h: dist_from_log_resid(np.log(sig2_fc[h - 1]), resid) for h in HORIZONS}
-
-
-_ND = NormalDist()
-_Z_NATIVE = np.array([_ND.inv_cdf(p) for p in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]])
-_Z_TARGET = np.array([_ND.inv_cdf(p) for p in QUANTILES])
-
-
-def expand_quantiles(logq9):
-    # wie 02_timesfm.ipynb: 9 TimesFM-Quantile -> 21, in Logs auf der Normal-Skala
-    q = np.asarray(logq9, float)
-    out = np.empty(q.shape[:-1] + (len(QUANTILES),))
-    lo_slope = np.maximum((q[..., 2] - q[..., 0]) / (_Z_NATIVE[2] - _Z_NATIVE[0]), 1e-6)
-    hi_slope = np.maximum((q[..., 8] - q[..., 6]) / (_Z_NATIVE[8] - _Z_NATIVE[6]), 1e-6)
-    for k, z in enumerate(_Z_TARGET):
-        if z < _Z_NATIVE[0] - 1e-12:
-            out[..., k] = q[..., 0] + lo_slope * (z - _Z_NATIVE[0])
-        elif z > _Z_NATIVE[-1] + 1e-12:
-            out[..., k] = q[..., 8] + hi_slope * (z - _Z_NATIVE[-1])
-        else:
-            j = int(np.clip(np.searchsorted(_Z_NATIVE, z), 1, 8))
-            w = (z - _Z_NATIVE[j - 1]) / (_Z_NATIVE[j] - _Z_NATIVE[j - 1])
-            out[..., k] = (1 - w) * q[..., j - 1] + w * q[..., j]
-    return out
-
-
 @st.cache_resource(show_spinner=False)
-def load_chronos():
-    import torch
-    from chronos import Chronos2Pipeline
-    return Chronos2Pipeline.from_pretrained(CHRONOS_MODEL, device_map="cuda" if torch.cuda.is_available() else "cpu")
+def load_foundation(name):
+    # Foundation Models nur einmal laden, danach bleiben sie im Speicher
+    return EX.EXPERTS[name]()
 
 
-@st.cache_resource(show_spinner=False)
-def load_timesfm():
-    import timesfm
-    model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(TIMESFM_REPO)
-    model.compile(timesfm.ForecastConfig(
-        max_context=CONTEXT, max_horizon=max(HORIZONS), normalize_inputs=True,
-        per_core_batch_size=4, use_continuous_quantile_head=True,
-        fix_quantile_crossing=True, infer_is_positive=False))
-    return model
+def get_expert(name):
+    if name in FOUNDATION:
+        return load_foundation(name)
+    return EX.EXPERTS[name]()
 
 
-def chronos_forecast(rv, pipe):
-    ctx = np.log(rv).astype(np.float32)[-CONTEXT:]
-    qs, _ = pipe.predict_quantiles([ctx], prediction_length=max(HORIZONS), quantile_levels=QUANTILES,
-                                   batch_size=1, context_length=CONTEXT, cross_learning=False)
-    log_q = qs[0][0].detach().float().cpu().numpy()
-    out = {}
-    for h in HORIZONS:
-        q = np.sort(np.exp(log_q[h - 1]))
-        out[h] = (mean_from_quantiles(q), q)
-    return out
-
-
-def timesfm_forecast(rv, model):
-    ctx = np.log(rv).astype(np.float32)[-CONTEXT:]
-    _, q = model.forecast(horizon=max(HORIZONS), inputs=[ctx])
-    q9 = np.asarray(q)[0, :max(HORIZONS), 1:]
-    out = {}
-    for h in HORIZONS:
-        qq = np.sort(np.exp(expand_quantiles(q9[h - 1])))
-        out[h] = (mean_from_quantiles(qq), qq)
-    return out
-
-
-# Neue Foundation Models: Setup wie in 03_t0_timestral.ipynb (log-RV, Kontext 1024, 21 Quantile)
-@st.cache_resource(show_spinner=False)
-def load_t0():
-    from t0 import T0Forecaster
-    return T0Forecaster.from_pretrained(T0_REPO).eval()
-
-
-@st.cache_resource(show_spinner=False)
-def load_timestral():
-    import torch
-    from timestral import TimestralForecaster
-    model = TimestralForecaster.from_pretrained(TIMESTRAL_REPO, device="cuda" if torch.cuda.is_available() else "cpu")
-    levels = np.asarray(model.quantile_levels, float)
-    if len(levels) != len(_LV) or not np.allclose(levels, _LV):
-        raise ValueError(f"Timestral liefert andere Quantilstufen als erwartet: {tuple(levels)}")
-    return model
-
-
-def _as_numpy(x):
-    return x.detach().float().cpu().numpy() if hasattr(x, "detach") else np.asarray(x, float)
-
-
-def _finish_log_quantiles(log_q):
-    # (H, 21) Log-Quantile -> {h: (mean, q)}, Rücktransformation wie bei Chronos und TimesFM
-    out = {}
-    for h in HORIZONS:
-        q = np.sort(np.exp(np.asarray(log_q[h - 1], float)))
-        out[h] = (mean_from_quantiles(q), q)
-    return out
-
-
-def t0_forecast(rv, model):
-    ctx = np.log(rv).astype(np.float32)[-CONTEXT:][None, :]
-    res = model.predict(ctx, horizon=max(HORIZONS), quantile_levels=QUANTILES,
-                        trim_leading_missing=True, symmetric_averaging=True,
-                        clip_nonnegative=False, snap_integers=False)
-    return _finish_log_quantiles(_as_numpy(res.quantiles).reshape(max(HORIZONS), len(QUANTILES)))
-
-
-def timestral_forecast(rv, model):
-    ctx = np.log(rv).astype(np.float32)[-CONTEXT:][None, None, :]
-    res = model.forecast(ctx, prediction_length=max(HORIZONS), symmetric_averaging=True, clip_nonnegative=False)
-    return _finish_log_quantiles(_as_numpy(res.quantiles)[0, 0])
-
-
-MODEL_FNS = {"Chronos-2-full": chronos_forecast, "TimesFM-2.5": timesfm_forecast,
-             "t0-gamma": t0_forecast, "Timestral-209M": timestral_forecast}
-MODEL_LOADERS = {"Chronos-2-full": load_chronos, "TimesFM-2.5": load_timesfm,
-                 "t0-gamma": load_t0, "Timestral-209M": load_timestral}
-
-
-# =====================================================================================
-# Statische Gewichte: wie "Statisch" in 01_kombination.ipynb, nur aus train
-# =====================================================================================
-def _softmax(b):
-    e = np.exp(b - b.max())
-    return e / e.sum()
-
-
-@st.cache_data(show_spinner=False)
-def static_weights():
-    fc = pd.concat([pd.read_parquet(RESULTS_DIR / f"{sid}__{m}.parquet")
-                    for sid in SYMBOLS for m in POOL], ignore_index=True)
-    scale = pd.concat([load_research_scale(sid) for sid in SYMBOLS])
-    weights = {}
-    for h in HORIZONS:
-        sub = fc[fc["h"] == h]
-        wide = sub.set_index(["sid", "origin", "model"])[["y", "target_date", "mean"] + QCOLS].unstack("model")
-        mean = wide["mean"][POOL].to_numpy()
-        Q = np.stack([wide[c][POOL].to_numpy() for c in QCOLS], axis=-1)
-        ok = np.isfinite(mean).all(1) & np.isfinite(Q).all((1, 2))
-        y = wide["y"][POOL[0]].to_numpy()
-        td = pd.to_datetime(wide["target_date"][POOL[0]].to_numpy())
-        s = scale.reindex(wide.index).to_numpy()
-        rows = ok & (td <= pd.Timestamp(TRAIN_END)) & np.isfinite(s)
-        mean, Q, y, s = mean[rows], Q[rows], y[rows], s[rows]
-
-        def loss(b):
-            w = _softmax(b)
-            f = mean @ w
-            r = y / f
-            d = y[:, None] - np.einsum("m,nmq->nq", w, Q)
-            pin = np.maximum(_LV * d, (_LV - 1) * d).mean(1)
-            return np.mean(r - np.log(r) - 1) + ALPHA * np.mean(pin / s)
-
-        res = minimize(loss, np.zeros(len(POOL)), method="L-BFGS-B",
-                       options={"maxiter": 2000, "ftol": 1e-14, "gtol": 1e-10})
-        weights[h] = pd.Series(_softmax(res.x), index=POOL)
-    return weights
+def friendly_error(err):
+    if "ModuleNotFoundError" in err or "No module named" in err:
+        return "Paket nicht installiert, siehe README Abschnitt 3"
+    return err
 
 
 def new_weights(w_static, avail):
@@ -475,67 +296,76 @@ def new_weights(w_static, avail):
     return w / w.sum()
 
 
-def load_research_scale(sid):
-    d = pd.read_parquet(DATA_DIR / f"{sid}_daily.parquet")
-    sc = d["rv"].rolling(22).mean()
-    sc.index = pd.MultiIndex.from_arrays([np.repeat(sid, len(sc)), sc.index], names=["sid", "origin"])
-    return sc
+def mix(results, w):
+    return (sum(w[m] * results[m][0] for m in w.index), sum(w[m] * np.asarray(results[m][1]) for m in w.index))
 
 
-# =====================================================================================
-# Prognose und Logbuch
-# =====================================================================================
-def forecast_coin(sym, d, models, price=None):
-    rv, ret = d["rv"].to_numpy(float), d["ret"].to_numpy(float)
-    results, errors = {BASELINE: rw_forecast(rv), "HAR": har_forecast(rv)}, {}
-    try:
-        results["GARCH"] = garch_forecast(rv, ret)
-    except Exception as e:
-        errors["GARCH"] = str(e)
-    for name, fn in MODEL_FNS.items():
-        if models.get(name) is None:
-            errors[name] = models.get(f"{name}_error", "nicht geladen")
-            continue
-        try:
-            results[name] = fn(rv, models[name])
-        except Exception as e:
-            errors[name] = str(e)
-
-    origin = d.index[-1]
-    w_all = static_weights()
-    rows, combo_q_by_h = [], {}
+def forecast_coin(sym, origin, today, price=None):
+    """Logbuch-Zeilen für einen Coin am Ursprung `origin`. today: Ergebnis von LV.today für diesen Coin."""
+    st_ = settings()
+    preds = {m: p for m in LIVE_MODELS if (p := LV.latest(st_, sym, m, origin)) is not None}
+    rows, combo_q_by_h, notes = [], {}, []
     for h in HORIZONS:
-        # Hauptprognose: nur der bisherige Pool, statische Gewichte (unverändert)
-        avail = [m for m in POOL if m in results]
-        w = w_all[h][avail]
-        w = w / w.sum()                                              # falls ein Experte fehlt
-        combo_mean = sum(w[m] * results[m][h][0] for m in avail)
-        combo_q = sum(w[m] * results[m][h][1] for m in avail)
-        combo_q_by_h[h] = np.asarray(combo_q, float)
-        extra = [(COMBO, (combo_mean, combo_q))]
+        res = {m: preds[m][h] for m in preds}
+        t = today.get(h)
+        if t is not None:
+            w = pd.Series(t[LV.STATIC], index=POOL)
+            wg = pd.Series(t[LV.GATE], index=POOL)
+        else:                                                # nicht alle Experten des Pools da: kein Gate
+            fb = last_static_weights(h)
+            avail = [m for m in POOL if m in res]
+            w = fb[avail] / fb[avail].sum() if fb is not None and avail else pd.Series(dtype=float)
+            wg = None
+            notes.append(h)
+        extra = []
+        if len(w):
+            combo_mean, combo_q = mix(res, w)
+            combo_q_by_h[h] = np.asarray(combo_q, float)
+            extra.append((COMBO, (combo_mean, combo_q)))
+        if wg is not None:
+            extra.append((GATE, mix(res, wg)))
 
-        # Zweite Kombination (separat): nur wenn mindestens eines der neuen Modelle gerechnet wurde
-        avail_new = [m for m in POOL_NEW if m in results]
+        avail_new = [m for m in POOL_NEW if m in res]
         w_new = pd.Series(dtype=float)
-        if any(m in results for m in NEW_MODELS):
-            w_new = new_weights(w_all[h], avail_new)
-            extra.append((COMBO_NEW, (sum(w_new[m] * results[m][h][0] for m in avail_new),
-                                      sum(w_new[m] * results[m][h][1] for m in avail_new))))
+        if any(m in res for m in NEW_MODELS) and len(w):
+            w_new = new_weights(w.reindex(POOL).fillna(0.0), avail_new)
+            extra.append((COMBO_NEW, mix(res, w_new)))
 
-        for m, (mean, q) in [(m, results[m][h]) for m in results] + extra:
-            rows.append({"sid": sym, "origin": origin, "h": h, "target_date": origin + pd.Timedelta(days=h),
+        target = origin + pd.Timedelta(days=h)
+        for m, (mean, q) in [(m, res[m]) for m in res] + extra:
+            rows.append({"sid": sym, "origin": origin, "h": h, "target_date": target,
                          "model": m, "mean": float(mean), **dict(zip(QCOLS, np.asarray(q, float))),
-                         "weight": float(w.get(m, np.nan)) if m in POOL else np.nan,
+                         "weight": float(w.get(m, np.nan)) if m in POOL and len(w) else np.nan,
+                         "weight_gate": float(wg.get(m, np.nan)) if wg is not None and m in POOL else np.nan,
                          "weight_new": float(w_new.get(m, np.nan)),
-                         "n_experts": len(avail_new) if m == COMBO_NEW else len(avail)})
+                         "n_experts": len(avail_new) if m == COMBO_NEW else len(w),
+                         "model_month": (t["model"]["month"] if t is not None else pd.NaT)})
 
     price_rows = []
-    if price is not None and origin in price.index:
+    if price is not None and origin in price.index and set(combo_q_by_h) == set(HORIZONS):
         p0 = float(price.loc[origin])
         for h, pq in price_range(combo_q_by_h, p0).items():
             price_rows.append({"sid": sym, "origin": origin, "h": h, "target_date": origin + pd.Timedelta(days=h),
                                "p0": p0, **dict(zip(PRICE_COLS, pq))})
-    return pd.DataFrame(rows), errors, pd.DataFrame(price_rows)
+    return pd.DataFrame(rows), pd.DataFrame(price_rows), notes
+
+
+def month_models():
+    """Alle gespeicherten Monatsmodelle: {(Monat, h): Modell-Dict}."""
+    import pickle
+    out = {}
+    for p in sorted(settings().model_dir.glob("*_h*.pkl")):
+        with open(p, "rb") as f:
+            mod = pickle.load(f)
+        out[(mod["month"], mod["h"])] = mod
+    return out
+
+
+def last_static_weights(h):
+    mods = [m for (month, hh), m in month_models().items() if hh == h]
+    if not mods:
+        return None
+    return pd.Series(last_weights_of(max(mods, key=lambda m: m["month"])))
 
 
 # =====================================================================================
@@ -573,9 +403,14 @@ def read_log():
 
 
 def write_log(new):
+    # ein Klick ersetzt alle Zeilen desselben Coins und Ursprungs (sonst blieben Zeilen eines Modells
+    # stehen, das beim neuen Klick ausgefallen ist)
     new = new.assign(made_at=pd.Timestamp.now(tz="UTC").tz_localize(None))
-    log = pd.concat([read_log(), new], ignore_index=True)
-    log = log.drop_duplicates(["sid", "origin", "h", "model"], keep="last")
+    old = read_log()
+    if not old.empty:
+        keys = pd.MultiIndex.from_frame(new[["sid", "origin"]].drop_duplicates())
+        old = old[~pd.MultiIndex.from_frame(old[["sid", "origin"]]).isin(keys)]
+    log = pd.concat([old, new], ignore_index=True)
     LIVE_DIR.mkdir(parents=True, exist_ok=True)
     log.to_parquet(LOG_PATH)
     return log
@@ -607,16 +442,8 @@ def qlike(y, f):
 
 
 def run_update(progress):
-    models = {}
-    progress.write("Lade Modelle (beim ersten Mal ca. 30–60 Sekunden) …")
-    for name, loader in MODEL_LOADERS.items():
-        try:
-            models[name] = loader()
-        except ModuleNotFoundError as e:
-            models[name], models[f"{name}_error"] = None, f"Paket nicht installiert ({e.name}), siehe 03_t0_timestral.ipynb"
-        except Exception as e:
-            models[name], models[f"{name}_error"] = None, str(e)
-    all_rows, price_rows, report, new_errors = [], [], [], {}
+    st_ = settings()
+    report, daily, prices = [], {}, {}
     for sym, label in SYMBOLS.items():
         progress.write(f"{label}: neue Daten laden …")
         try:
@@ -625,28 +452,48 @@ def run_update(progress):
             report.append(("error", f"{label}: Daten konnten nicht geladen werden ({e}). Es wird mit dem letzten Stand prognostiziert."))
             d, n_new = load_daily(sym), 0
         try:
-            price = update_price(sym)
+            prices[sym] = update_price(sym)
         except Exception as e:
-            price = load_price(sym)
+            prices[sym] = load_price(sym)
             report.append(("warning", f"{label}: Kurs konnte nicht geladen werden ({e})."))
-        progress.write(f"{label}: Prognose berechnen …")
-        fc, errors, prices = forecast_coin(sym, d, models, price)
-        all_rows.append(fc)
-        price_rows.append(prices)
-        if prices.empty and price is not None:
-            report.append(("warning", f"{label}: Für den {d.index[-1]:%d.%m.%Y} fehlt der Schlusskurs, "
-                                      "deshalb gibt es diesmal keine Kursspanne."))
+        daily[sym] = d
         report.append(("info", f"{label}: {n_new} neue Tage, Daten bis {d.index[-1]:%d.%m.%Y}."))
-        for m, err in errors.items():
-            if m in NEW_MODELS:
-                new_errors.setdefault(m, err)
-            else:
-                report.append(("warning", f"{label}: {LABELS.get(m, m)} fehlt in dieser Prognose ({err}). "
-                                          "Die Kombination wurde mit den übrigen Experten neu gewichtet."))
-    for m, err in new_errors.items():
-        report.append(("warning", f"{LABELS.get(m, m)} fehlt ({err}). Die Hauptprognose ist davon nicht betroffen."))
-    write_log(pd.concat(all_rows, ignore_index=True))
-    write_price_log(pd.concat(price_rows, ignore_index=True))
+
+    # 1. Experten für alle neuen Ursprünge rechnen (beim ersten Mal ab September 2026, danach nur neue Tage)
+    progress.write("Experten rechnen (beim ersten Mal einige Minuten, Modelle laden ca. 30–60 Sekunden) …")
+    errors = LV.update_forecasts(st_, daily, LIVE_MODELS, get_expert, progress.write)
+    for m, err in errors.items():
+        if m in POOL:
+            report.append(("warning", f"{LABELS.get(m, m)} fehlt ({friendly_error(err)}). Die Kombination wird mit "
+                                      "den übrigen Experten und den letzten statischen Gewichten gerechnet, das Gate "
+                                      "ist heute nicht verfügbar."))
+        elif m in NEW_MODELS:
+            report.append(("warning", f"{LABELS.get(m, m)} fehlt ({friendly_error(err)}). "
+                                      "Die Hauptprognose ist davon nicht betroffen."))
+
+    # 2. Panels und 3. Monatsmodelle (beim ersten Klick eines Monats wird neu trainiert)
+    progress.write("Features berechnen …")
+    panels, _ = LV.build_panels(st_, daily)
+    all_rows, price_rows = [], []
+    for sym, label in SYMBOLS.items():
+        origin = daily[sym].index[-1]
+        today = LV.today(st_, panels, sym, origin, progress.write)
+        fc, prices_df, notes = forecast_coin(sym, origin, today, prices.get(sym))
+        if fc.empty or not (fc["model"] == COMBO).any():
+            report.append(("error", f"{label}: keine Prognose möglich, es fehlen Experten des Pools."))
+            continue
+        all_rows.append(fc)
+        price_rows.append(prices_df)
+        for h in notes:
+            report.append(("warning", f"{label} ({h} {'Tag' if h == 1 else 'Tage'} voraus): nicht alle Experten "
+                                      "des Pools verfügbar, deshalb ohne Gate."))
+        if prices_df.empty and prices.get(sym) is not None:
+            report.append(("warning", f"{label}: Für den {origin:%d.%m.%Y} fehlt der Schlusskurs, "
+                                      "deshalb gibt es diesmal keine Kursspanne."))
+    if all_rows:
+        write_log(pd.concat(all_rows, ignore_index=True))
+    if price_rows:
+        write_price_log(pd.concat(price_rows, ignore_index=True))
     return report
 
 
@@ -731,17 +578,18 @@ def history_chart(d, fc, days=90):
 
 def model_chart(fc, h, order=MAIN_ORDER, weight_col="weight"):
     c = fc[(fc["h"] == h) & fc["model"].isin(order)].copy()
-    role = np.select([c["model"] == COMBO, c["model"] == COMBO_NEW], ["Kombination", "Kombination neu"], "Experte")
+    role = np.select([c["model"] == COMBO, c["model"] == COMBO_NEW, c["model"] == GATE],
+                     ["Kombination", "Kombination neu", "Gate"], "Experte")
     c = c.assign(Modell=c["model"].map(LABELS), Vola=vol(c["mean"]), Von=vol(c["q0.05"]), Bis=vol(c["q0.95"]),
                  Rolle=role)
-    wcol = c[weight_col] if weight_col in c else pd.Series(np.nan, index=c.index)
+    wcol = c[weight_col] if weight_col and weight_col in c else pd.Series(np.nan, index=c.index)
     c["Gewicht"] = wcol.map(lambda w: "–" if pd.isna(w) else pct(w))
     sort = [LABELS[m] for m in order if m in set(c["model"])]
     axis = dict(labelColor=MUTED, titleColor=INK_2, gridColor=GRID, domainColor="#c3c2b7", tickColor="#c3c2b7")
     y = alt.Y("Modell:N", sort=sort, title=None, axis=alt.Axis(labelColor=INK_2, labelFontSize=12, domain=False,
                                                                 ticks=False, labelLimit=320))
-    color = alt.Color("Rolle:N", scale=alt.Scale(domain=["Kombination", "Kombination neu", "Experte"],
-                                                 range=[BLUE, ORANGE, MUTED]), legend=None)
+    color = alt.Color("Rolle:N", scale=alt.Scale(domain=["Kombination", "Kombination neu", "Gate", "Experte"],
+                                                 range=[BLUE, ORANGE, TEAL, MUTED]), legend=None)
     tip = [alt.Tooltip("Modell:N"), alt.Tooltip("Vola:Q", title="Erwartet (%)", format=".0f"),
            alt.Tooltip("Von:Q", title="90 % ab (%)", format=".0f"), alt.Tooltip("Bis:Q", title="90 % bis (%)", format=".0f"),
            alt.Tooltip("Gewicht:N", title="Gewicht")]
@@ -762,12 +610,31 @@ def model_table(fc, order=MAIN_ORDER, weight_col="weight"):
         row = {"Modell": LABELS[m]}
         for h, name in [(1, "1 Tag"), (5, "5 Tage")]:
             x = r[r["h"] == h].iloc[0]
-            w = x.get(weight_col, np.nan)
+            w = x.get(weight_col, np.nan) if weight_col else np.nan
             row[f"Erwartet {name}"] = f"{vol(x['mean']):.0f} %"
             row[f"90 %-Bereich {name}"] = f"{vol(x['q0.05']):.0f} – {vol(x['q0.95']):.0f} %"
             row[f"Gewicht {name}"] = "–" if pd.isna(w) else pct(w)
         rows.append(row)
     return pd.DataFrame(rows).set_index("Modell")
+
+
+def gate_section(fc, h):
+    st.subheader("Gate (parallel)", divider=False)
+    if not (fc["model"] == GATE).any():
+        st.info("Das Gate ist in dieser Prognose nicht dabei. Es braucht die Prognosen aller Experten des Pools.")
+        return
+    st.altair_chart(model_chart(fc, h, order=[COMBO, GATE], weight_col=None), width="stretch")
+    month = fc.loc[fc["model"] == GATE, "model_month"].dropna()
+    month = f" Modell für {pd.Timestamp(month.iloc[0]):%m.%Y}." if len(month) else ""
+    st.caption("Das lineare Gate wählt die Gewichte jeden Tag neu aus der Marktlage, den Abweichungen und den "
+               "jüngsten Fehlern der Experten. Es läuft parallel zur Kombination (blau), fliesst aber weder in die "
+               "Hauptprognose noch in die Kursspanne ein. Beide werden jeden Monat neu trainiert, wie im "
+               f"Walk-Forward von 04_training.{month} Ob das Gate besser ist, zeigt das Logbuch.")
+    sub = fc[(fc["h"] == h) & fc["model"].isin(POOL)].set_index("model")
+    fmt = lambda x: "–" if pd.isna(x) else pct(x)
+    tab = pd.DataFrame({"Kombination (fest im Monat)": sub["weight"].reindex(POOL),
+                        "Gate (heute)": sub.get("weight_gate", pd.Series(dtype=float)).reindex(POOL)})
+    st.dataframe(tab.rename(index=LABELS).map(fmt), width="stretch")
 
 
 def new_models_section(sym, fc, h):
@@ -875,6 +742,7 @@ def coin_view(sym, log, plog):
     with st.expander("Als Tabelle anzeigen"):
         st.dataframe(model_table(fc), width="stretch")
 
+    gate_section(fc, h)
     new_models_section(sym, fc, h)
 
 
@@ -914,6 +782,13 @@ def logbook_view(log):
         st.dataframe(log_summary(done, MAIN_ORDER), width="stretch")
         if n < 30:
             st.caption("Mit weniger als etwa 30 Prognosen pro Modell sind diese Werte noch sehr zufällig.")
+
+        gate_done = done[done["model"] == GATE]
+        if not gate_done.empty:
+            st.markdown("**Gate (parallel).** Verglichen auf denselben Tagen wie die Kombination.")
+            keys = gate_done[["sid", "origin", "h"]].drop_duplicates()
+            same = done.merge(keys, on=["sid", "origin", "h"])
+            st.dataframe(log_summary(same, [COMBO, GATE]), width="stretch")
 
         new_done = done[done["model"] == COMBO_NEW]
         if not new_done.empty:
@@ -968,18 +843,39 @@ def price_logbook_view():
 
 
 def method_view():
-    w = static_weights()
-    wt = pd.DataFrame({"1 Tag voraus": w[1], "5 Tage voraus": w[5]}).rename(index=LABELS).map(pct)
-    st.markdown("""
+    st_ = settings()
+    st.markdown(f"""
 **Was wird prognostiziert?** Die realisierte Varianz (RV) eines UTC-Tages: die Summe der quadrierten
 5-Minuten-Log-Renditen. Angezeigt wird sie als annualisierte Volatilität √(365 · RV).
 
 **Woher kommt die Prognose?** Vier Experten prognostizieren die RV aus ihrem bisherigen Verlauf:
 Chronos-2 und TimesFM-2.5 (vortrainierte Foundation Models, zero-shot), HAR und GARCH (Ökonometrie).
-Die Kombination mischt ihre Prognosen mit festen Gewichten. Gelernt wurden diese Gewichte auf der
-Trainingsperiode bis 31.10.2025, genau wie die Methode «Statisch» in `01_kombination.ipynb`.
+Sie rechnen mit demselben Code wie die Notebooks (`src/pipeline/experts.py`).
+
+**Wie werden sie kombiniert?** Wie im Walk-Forward von `04_training`: Jeden Monat werden zwei Methoden
+neu trainiert, mit allen Zielen, die vor Monatsbeginn bekannt sind, und dann den ganzen Monat verwendet.
+
+- **Kombination** (Hauptprognose): «Statisch», ein fester Gewichtsvektor pro Monat.
+- **Gate** (parallel): das lineare Gate. Es berechnet die Gewichte jeden Tag neu aus
+  den Features (Marktlage, Abweichungen der Experten, ihre jüngsten Fehler, Wochenende). λ wird wie in 04 auf den letzten {st_.tune_days} Tagen des Trainings gewählt.
+
+**Testperiode:** Ziele von {st_.test_start:%d.%m.%Y} bis {st_.test_end:%d.%m.%Y} sind für die finale Auswertung
+gesperrt. Sie werden nicht trainiert und im Logbuch nicht ausgewertet. Als Vergangenheit (Kontext der Experten,
+gleitende Features) sind diese Tage wie jede Historie sichtbar.
 """)
-    st.dataframe(wt, width="stretch")
+    mods = month_models()
+    if mods:
+        rows = []
+        for (month, h), mod in sorted(mods.items(), key=lambda kv: (kv[0][0], kv[0][1]), reverse=True):
+            i_s, i_g = mod["info"][LV.STATIC], mod["info"][LV.GATE]
+            ws = last_weights_of(mod)
+            rows.append({"Monat": f"{month:%m.%Y}", "Horizont": f"{h} T.",
+                         "Trainiert bis": f"{i_s['train_to']:%d.%m.%Y}", "Zeilen": i_s["n_train"],
+                         "λ Gate": f"{i_g['lam']:g}", **{LABELS.get(m, m): pct(v) for m, v in ws.items()}})
+        st.markdown("**Monatsmodelle** (Gewichte = Kombination «Statisch»):")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    else:
+        st.info("Noch kein Monatsmodell trainiert. Das passiert beim ersten Klick auf «Daten laden und Prognose berechnen».")
     st.markdown("""
 **Wie lese ich den 90-%-Bereich?** Mit 90 % Wahrscheinlichkeit liegt die Volatilität des Tages in
 diesem Bereich. Je breiter er ist, desto unsicherer sind die Modelle.
@@ -988,24 +884,26 @@ diesem Bereich. Je breiter er ist, desto unsicherer sind die Modelle.
 Varianz ist die Rendite ungefähr normalverteilt mit Mittelwert 0. Weil die Vola-Prognose selbst unsicher ist,
 wird über ihre 21 Quantile gemischt. Für 5 Tage werden die Varianzen der Tage 1 bis 5 addiert, die Tage 2 bis 4
 werden zwischen der 1- und der 5-Tages-Prognose interpoliert. Die Mitte der Spanne ist der letzte Schlusskurs:
-Die Spanne sagt, wie weit sich der Kurs bewegen kann, nicht in welche Richtung. Im Rückblick (train und val)
-lag der Kurs in 88 bis 90 % der Fälle in der 90-%-Spanne.
+Die Spanne sagt, wie weit sich der Kurs bewegen kann, nicht in welche Richtung. Sie beruht auf der Kombination.
 
-**Was passiert mit den Forschungsdaten?** Nichts. Neue Tage und das Logbuch werden in `src/data/live/`
-gespeichert. Die Testperiode (März bis August 2026) wird nicht ausgewertet.
+**Was passiert mit den Forschungsdaten?** Nichts. Neue Tage, die Live-Prognosen der Experten
+(`src/data/live/forecasts/`), die Monatsmodelle (`src/data/live/models/`) und das Logbuch liegen in
+`src/data/live/`.
 
 **Was ist mit t0 und Timestral?** Die beiden Foundation Models (t0-gamma von The Forecasting Company,
 Timestral-209M von Mistral AI) sind im September bzw. Oktober 2026 erschienen, also nach unserer
-Testperiode. Sie könnten die Daten im Training gesehen haben. Deshalb lernen wir aus der Vergangenheit
-keine Gewichte für sie. Sie laufen nur mit, separat von der Hauptprognose und der Kursspanne, und werden
-über das Logbuch sauber ausgewertet, weil jede Prognose vor dem Zieltag gespeichert wird.
-
-Die **zweite Kombination** nimmt alle sechs Experten. Ihre Gewichte sind gesetzt, nicht gelernt: Die
-Foundation Models machen fast dieselben Fehler. Deshalb wird ihr bisheriger Gesamtanteil gleichmässig auf
-alle vier verteilt, HAR und GARCH behalten ihr Gewicht.
+Testperiode. Sie könnten die Daten im Training gesehen haben. Deshalb lernen wir für sie keine Gewichte.
+Sie laufen nur mit, separat von der Hauptprognose, dem Gate und der Kursspanne, und werden über das Logbuch
+sauber ausgewertet. Die **zweite Kombination** nimmt alle sechs Experten. Ihre Gewichte sind gesetzt: Der
+Anteil der Foundation Models aus der aktuellen Kombination wird gleichmässig auf alle vier verteilt, HAR und
+GARCH behalten ihr Gewicht.
 """)
-    wn = pd.DataFrame({"1 Tag voraus": new_weights(w[1], POOL_NEW), "5 Tage voraus": new_weights(w[5], POOL_NEW)})
-    st.dataframe(wn.rename(index=LABELS).map(pct), width="stretch")
+
+
+def last_weights_of(mod):
+    c = mod["combiners"][LV.STATIC]
+    w = c.nets_[0](LV.cb.T(np.zeros((1, 0)))).detach().numpy()[0]
+    return dict(zip(mod["pool"], w))
 
 
 def main():
@@ -1050,3 +948,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

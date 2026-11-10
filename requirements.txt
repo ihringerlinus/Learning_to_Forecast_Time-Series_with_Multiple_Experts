@@ -11,3 +11,6 @@ scipy
 requests
 tqdm
 jupyter
+# optional: neue Foundation Models (02_experten, App)
+tfc-t0[torch]>=0.6.0
+timestral @ git+https://github.com/mistralai/timestral.git
