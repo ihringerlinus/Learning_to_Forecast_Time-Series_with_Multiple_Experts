@@ -13,13 +13,13 @@ LV = np.asarray(QUANTILES)
 QMASS = (np.r_[LV[1:], 1.0] - np.r_[0.0, LV[:-1]]) / 2     # Wahrscheinlichkeitsmasse je Quantil (Trapez)
 QMASS = QMASS / QMASS.sum()
 
-HORIZONS = [1, 5]               # Tage voraus
-MIN_HISTORY = 500               # Tage Historie vor dem ersten Ursprung
-EST_WINDOW = 1000               # rollierendes Schätzfenster für RW / EWMA / HAR / GARCH
-GARCH_REFIT_EVERY = 5           # GARCH alle k Ursprünge neu schätzen
+HORIZONS = [1, 24]              # Tage voraus
+MIN_HISTORY = 24 * 60           # Tage Historie vor dem ersten Ursprung
+EST_WINDOW = 24 * 90            # rollierendes Schätzfenster für RW / EWMA / HAR / GARCH
+GARCH_REFIT_EVERY = 24          # GARCH alle k Ursprünge neu schätzen
 CONTEXT = 1024                  # Kontext der Foundation Models (Tage)
 FM_BATCH = 128
-
+ORIGIN_START = "2025-01-01"
 
 def qlike(y, f):
     r = y / f

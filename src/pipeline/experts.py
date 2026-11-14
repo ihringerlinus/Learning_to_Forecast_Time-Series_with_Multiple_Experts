@@ -35,7 +35,13 @@ class RVSeries:
         self.ret = df["ret"].to_numpy(float)
         self.logrv = np.log(self.rv)
         last = len(df) if all_origins else len(df) - max(C.HORIZONS)
-        self.origins = np.arange(C.MIN_HISTORY - 1, last)
+
+        first = C.MIN_HISTORY - 1
+        if C.ORIGIN_START:
+            first = max(first, int(np.searchsorted(self.dates, pd.Timestamp(C.ORIGIN_START))))
+        self.origins = np.arange(first, last)
+
+        # HAR: rolling(5) → rolling(24), rolling(22) → rolling(168), max(21, ...) → max(167, ...)
 
 
 class Expert:
