@@ -8,8 +8,14 @@ schätzt das Gate pro Fold nur auf den Trainingszeilen.
 | market     | logrv_dev, trend, level_rel (bzw. level), volvol, ret1, ret5  |
 | disagree   | ln mu_m - Mittel der ln mu_j                                  |
 | recent     | ln L_m - Mittel der ln L_j, L = EWMA-QLIKE, um h verschoben    |
-| calendar   | weekend (Zieldatum Samstag/Sonntag)                           |
+| calendar   | weekend; optional hour_sin/cos, us_open, fomc, cpi, event_day  |
+|            | (alle am Zielzeitpunkt, siehe cfg.calendar und exo.py)         |
 | exo        | alle Spalten exo_* der Tagesdaten                             |
+| volume     | exo_vol_*  (Teilmenge von exo, Quelle exo.py)                 |
+| dvol       | exo_dvol_* (Teilmenge von exo)                                |
+| markets    | exo_mkt_*  (Teilmenge von exo)                                |
+
+`exo` und seine Teilgruppen nie zusammen in cfg.groups verwenden (doppelte Features).
 | series     | One-Hot der Serie (standardmässig aus)                        |
 """
 from dataclasses import asdict, dataclass, field
@@ -21,16 +27,21 @@ from . import common as C
 from .common import qlike
 
 
+EXO_GROUPS = {"volume": "exo_vol_", "dvol": "exo_dvol_", "markets": "exo_mkt_"}   # Teilgruppen von exo
+
+
 @dataclass
 class FeatureConfig:
     pool: list
     sids: list
     groups: list = field(default_factory=lambda: ["market", "disagree", "recent", "calendar", "exo"])
-    halflives: list = field(default_factory=lambda: [10, 60])
-    min_periods: int = 5
+    # Alle Fenster in Tagen. Bei Stundendaten werden sie mit 24 multipliziert (C.steps_per_day).
+    halflives: list = field(default_factory=lambda: [10, 60])     # Tage
+    min_periods: int = 5                                           # Tage
     level: str = "relative"         # "relative" oder "absolute" (alt)
-    level_window: int = 250
+    level_window: int = 250                                        # Tage
     drop_redundant: bool = True
+    calendar: list = field(default_factory=lambda: ["weekend"])   # + "hour", "us_open", "events" (exo.py)
 
     @classmethod
     def legacy(cls, pool, sids):
@@ -47,25 +58,29 @@ def add_recent(fc, cfg):
     am Ursprung t ist das Ziel der Prognose von t-h gerade bekannt geworden."""
     fc = fc.sort_values(["sid", "h", "model", "origin"]).reset_index(drop=True)
     fc["qlike"] = qlike(fc["y"].to_numpy(), fc["mean"].to_numpy())
-    for hl in cfg.halflives:
+    k = C.steps_per_day(np.unique(fc["origin"]))          # Ursprünge pro Tag (Stundendaten: 24)
+    for hl in cfg.halflives:                              # Spaltenname bleibt in Tagen (recent10, recent60)
         fc[f"recent{hl}"] = np.nan
         for h, g in fc.groupby("h"):
             fc.loc[g.index, f"recent{hl}"] = g.groupby(["sid", "model"])["qlike"].transform(
-                lambda x: x.shift(h).ewm(halflife=hl, min_periods=cfg.min_periods).mean())
+                lambda x: x.shift(h).ewm(halflife=hl * k, min_periods=cfg.min_periods * k).mean())
     return fc
 
 
 def market_features(d, cfg):
+    # Fenster in Tagen (5 = Woche, 22 = Monat), umgerechnet in Schritte. ret1 bleibt der letzte Schritt.
+    k = C.steps_per_day(d.index)
     rv, ret = d["rv"], d["ret"]
-    lrv, rv22 = np.log(rv), rv.rolling(22).mean()
-    f = pd.DataFrame({"logrv_dev": lrv - np.log(rv22), "trend": np.log(rv.rolling(5).mean()) - np.log(rv22)})
+    lrv, rv22 = np.log(rv), rv.rolling(22 * k).mean()
+    f = pd.DataFrame({"logrv_dev": lrv - np.log(rv22),
+                      "trend": np.log(rv.rolling(5 * k).mean()) - np.log(rv22)})
     if cfg.level == "absolute":
         f["level"] = np.log(rv22)
     else:
-        f["level_rel"] = np.log(rv22) - lrv.rolling(cfg.level_window, min_periods=60).mean()
-    f["volvol"] = lrv.rolling(22).std()
+        f["level_rel"] = np.log(rv22) - lrv.rolling(cfg.level_window * k, min_periods=60 * k).mean()
+    f["volvol"] = lrv.rolling(22 * k).std()
     f["ret1"] = ret / np.sqrt(rv22)
-    f["ret5"] = ret.rolling(5).sum() / np.sqrt(5 * rv22)
+    f["ret5"] = ret.rolling(5 * k).sum() / np.sqrt(5 * k * rv22)
     return f
 
 
@@ -75,7 +90,7 @@ def daily_features(daily, cfg):
     for sid in cfg.sids:
         d = daily[sid]
         f = market_features(d, cfg)
-        f["scale"] = d["rv"].rolling(22).mean()
+        f["scale"] = d["rv"].rolling(22 * C.steps_per_day(d.index)).mean()
         for c in d.columns:
             if c.startswith("exo_"):
                 f[c] = d[c]
@@ -117,13 +132,27 @@ def build_panel(fc, daily_feat, h, cfg, true_var=None):
             name = f"recent_{m}" if len(cfg.halflives) == 1 else f"recent{hl}_{m}"
             groups["recent"].append(name)
             X[name] = lrec[:, j] - lrec.mean(1)
-    groups["calendar"] = ["weekend"]
-    X["weekend"] = (meta["target_date"].dt.day_of_week >= 5).astype(float).to_numpy()
+    groups["calendar"] = []
+    if "weekend" in cfg.calendar:
+        groups["calendar"].append("weekend")
+        X["weekend"] = (meta["target_date"].dt.day_of_week >= 5).astype(float).to_numpy()
+    extra = [c for c in cfg.calendar if c != "weekend"]
+    if extra:                       # am Zielzeitpunkt: Uhrzeit, Börse offen, FOMC/CPI (stehen im Voraus fest)
+        from .exo import calendar_features
+        cal = calendar_features(meta["target_date"], extra)
+        groups["calendar"] += list(cal.columns)
+        X.update({c: cal[c].to_numpy() for c in cal.columns})
     groups["exo"] = exo
+    for g, prefix in EXO_GROUPS.items():
+        groups[g] = [c for c in exo if c.startswith(prefix)]
     X.update({c: meta[c].to_numpy() for c in exo})
     groups["series"] = [f"series_{s}" for s in cfg.sids]
     X.update({f"series_{s}": (meta["sid"] == s).astype(float).to_numpy() for s in cfg.sids})
     groups = {g: groups[g] for g in cfg.groups if groups.get(g)}
+    feats = [c for g in groups.values() for c in g]
+    if len(feats) != len(set(feats)):
+        raise ValueError(f"Features doppelt in den Gruppen {list(groups)}: 'exo' nicht zusammen mit "
+                         f"{list(EXO_GROUPS)} verwenden")
 
     out = meta[["sid", "origin", "target_date", "y", "scale"] + [c for c in ["true_var", "regime"] if c in meta]].copy()
     out.insert(1, "h", h)

@@ -32,13 +32,16 @@ class Panel:
         self.recent = df[[f"recent|{m}" for m in pool]].to_numpy()
         feats = [c for g in groups.values() for c in g]
         self.X = df[[f"x|{c}" for c in feats]].set_axis(feats, axis=1).reset_index(drop=True)
+        # Länge eines Zeitschritts: target_date = origin + h Schritte (Stundendaten: 1 h, Tagesdaten: 1 Tag)
+        gap = pd.to_datetime(self.meta["target_date"]) - pd.to_datetime(self.meta["origin"])
+        self.step = gap.median() / h if len(gap) else pd.Timedelta(days=1)
 
     def __len__(self):
         return len(self.meta)
 
     def take(self, mask):
         P = object.__new__(Panel)
-        P.h, P.models, P.groups = self.h, self.models, self.groups
+        P.h, P.models, P.groups, P.step = self.h, self.models, self.groups, self.step
         P.meta = self.meta[mask].reset_index(drop=True)
         P.mean, P.Q, P.recent = self.mean[mask], self.Q[mask], self.recent[mask]
         P.X = self.X[mask].reset_index(drop=True)
@@ -241,9 +244,9 @@ def make_fold(P, start, test, tune_days, gap_days=0, train_start=None, window_da
     Training: alle Ziele bis start - h - gap (beim ersten Test-Ursprung bekannt). `exclude` (Maske) nimmt
     zusätzlich Zeilen aus dem Training, z.B. eine gesperrte Testperiode. Zeilen ohne bekanntes Ziel werden
     nie trainiert. lambda wird auf den letzten tune_days des Trainings gewählt (tune_eval), gefittet wird
-    dafür auf tune_fit, das h Tage vor tune_eval endet."""
+    dafür auf tune_fit, das h Zeitschritte vor tune_eval endet."""
     td = P.td
-    lag = pd.Timedelta(days=P.h + gap_days)
+    lag = P.h * P.step + pd.Timedelta(days=gap_days)                # h Schritte (nicht Tage) + Zusatzlücke
     cutoff = pd.Timestamp(start) - lag
     train = np.asarray(td <= cutoff) & np.isfinite(P.y)
     if train_start:
@@ -254,7 +257,7 @@ def make_fold(P, start, test, tune_days, gap_days=0, train_start=None, window_da
         train &= ~np.asarray(exclude)
     tune_start = cutoff - pd.Timedelta(days=tune_days)              # tune_eval: (tune_start, cutoff]
     tune_eval = train & np.asarray(td > tune_start)
-    tune_fit = train & np.asarray(td <= tune_start + pd.Timedelta(days=1) - lag)
+    tune_fit = train & np.asarray(td <= tune_start + P.step - lag)  # endet h Schritte vor tune_eval
     return Fold(pd.Timestamp(start).strftime("%Y-%m-%d"), tune_fit, tune_eval, train, np.asarray(test))
 
 

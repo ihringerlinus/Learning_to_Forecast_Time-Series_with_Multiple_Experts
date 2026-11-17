@@ -1,8 +1,8 @@
 """
 Volatilitätsprognose: Streamlit-App
 
-Lädt auf Knopfdruck die neuesten 5-Minuten-Kerzen von Binance, berechnet die tägliche
-realisierte Varianz (RV) und prognostiziert sie 1 und 5 Tage voraus.
+Lädt auf Knopfdruck die neuesten 1-Minuten-Kerzen von Binance, berechnet die stündliche
+realisierte Varianz (RV) und prognostiziert sie 1 und 24 Stunden voraus (Datensatz binance_1h).
 
 Die App rechnet mit demselben Code wie die Notebooks (src/pipeline/) und wie im Walk-Forward von
 04_training: Jeden Monat werden «Statisch» (Hauptprognose) und das lineare Gate (parallel) neu
@@ -13,8 +13,12 @@ Starten (aus dem Ordner app/, in der .venv):
 
     streamlit run app.py
 
+Voraussetzung: 01_daten bis 04_training mit DATASET = "binance_1h" gelaufen. Fehlt etwas, zeigt die
+App eine Anleitung statt einer Prognose.
+
 Die Forschungsdaten in src/data/ und src/results/ werden nur gelesen, nie verändert.
-Neue Tage, Live-Prognosen der Experten, die Monatsmodelle und die Logbücher liegen in src/data/live/.
+Neue Stunden, Live-Prognosen der Experten, die Monatsmodelle und die Logbücher liegen in
+src/data/live/binance_1h/ (die alten Tagesdaten in src/data/live/ bleiben unberührt).
 
 t0 und Timestral (seit Herbst 2026) laufen nur live und separat mit: als eigene Modelle und in
 einer zweiten Kombination. Die Hauptprognose und die Kursspanne verwenden sie nicht.
@@ -44,7 +48,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
 DATA_DIR = SRC_DIR / "data"
 RESULTS_DIR = SRC_DIR / "results"
-LIVE_DIR = DATA_DIR / "live"
+DATASET = "binance_1h"          # Datensatz aus 01_daten.ipynb (Stunden-RV aus 1-Minuten-Kerzen)
+LIVE_DIR = DATA_DIR / "live" / DATASET
 LOG_PATH = LIVE_DIR / "forecast_log.parquet"
 
 sys.path.insert(0, str(SRC_DIR))
@@ -55,7 +60,11 @@ from pipeline import live as LV                  # noqa: E402
 SYMBOLS = {"BTCUSDT": "Bitcoin", "ETHUSDT": "Ethereum", "SOLUSDT": "Solana"}
 HORIZONS = C.HORIZONS
 QUANTILES, QCOLS = C.QUANTILES, C.QCOLS
-MIN_BARS_PER_DAY = 270          # wie 01_daten
+FREQ = "1h"                     # wie 01_daten
+STEP = pd.Timedelta(FREQ)       # ein Zeitschritt = eine Stunde
+PER_DAY = int(pd.Timedelta(days=1) / STEP)
+MIN_BARS = 54                   # von 60 möglichen 1-Minuten-Kerzen pro Stunde, wie 01_daten
+CHART_HOURS = 24 * 7            # Verlauf in den Grafiken: letzte 7 Tage
 
 BASELINE = "RW"
 COMBO = "Kombination"           # Hauptprognose: «Statisch», monatlich neu trainiert
@@ -69,13 +78,39 @@ LIVE_MODELS = [BASELINE, "HAR", "GARCH", "Chronos-2-full", "TimesFM-2.5"] + NEW_
 
 @st.cache_resource(show_spinner=False)
 def settings():
-    # Pool, Features, lambdas, Tuning-Tage aus results/runs/binance_walkforward/config.json (04_training)
-    return LV.load_settings(SRC_DIR, LIVE_DIR)
+    # Pool, Features, lambdas, Tuning-Tage aus results/runs/binance_1h_walkforward/config.json (04_training)
+    return LV.load_settings(SRC_DIR, LIVE_DIR, dataset=DATASET)
 
 
-POOL = settings().pool
+def setup_problems():
+    """Was für den Start noch fehlt (leere Liste = alles da). Die Notebooks laufen evtl. gerade erst."""
+    if not (DATA_DIR / f"{DATASET}.json").exists():
+        return [f"Die Forschungsdaten `src/data/{DATASET}.json` fehlen. Notebook **01_daten** mit "
+                f'`DATASET = "{DATASET}"` laufen lassen.']
+    try:
+        st_ = settings()
+    except Exception as e:
+        return [f"Die Forschungsdaten konnten nicht gelesen werden ({type(e).__name__}: {e}). "
+                "Notebook **01_daten** neu laufen lassen."]
+    out = []
+    missing = [f"{sid}__{m}" for sid in st_.sids for m in st_.pool
+               if not (st_.research_dir / f"{sid}__{m}.parquet").exists()]
+    if missing:
+        out.append(f"Es fehlen Prognosen der Experten in `{st_.research_dir.relative_to(SRC_DIR)}` "
+                   f"({', '.join(missing[:4])}{' …' if len(missing) > 4 else ''}). Notebook **02_experten** laufen lassen.")
+    if st_.notes:
+        out.append(f"Der Trainingslauf `results/runs/{st_.run}/config.json` fehlt. Notebooks **03_features** und "
+                   "**04_training** laufen lassen, damit die App dieselben Features und λ verwendet.")
+    return out
+
+
+try:
+    _ST = settings()
+except Exception:
+    _ST = None
+POOL = _ST.pool if _ST is not None else ["Chronos-2-full", "TimesFM-2.5"]
 POOL_NEW = POOL + [m for m in NEW_MODELS if m not in POOL]
-TEST_END = settings().test_end   # Logbuch wertet nur Ziele danach aus (Testperiode bleibt unberührt)
+TEST_END = _ST.test_end if _ST is not None else pd.Timestamp("2026-08-31 23:00")   # Logbuch: nur Ziele danach
 
 LABELS = {COMBO: "Kombination", GATE: "Gate (linear, parallel)", "Chronos-2-full": "Chronos-2",
           "TimesFM-2.5": "TimesFM-2.5", "HAR": "HAR", "GARCH": "GARCH", BASELINE: "Random Walk", "EWMA": "EWMA",
@@ -85,7 +120,8 @@ MAIN_ORDER = [COMBO] + POOL + [BASELINE]
 NEW_ORDER = [COMBO_NEW] + NEW_MODELS
 
 API_HOSTS = ["https://data-api.binance.vision", "https://api.binance.com"]
-DAILY_ZIP = "https://data.binance.vision/data/spot/daily/klines/{sym}/5m/{sym}-5m-{day}.zip"
+ZIP_DAY = "https://data.binance.vision/data/spot/daily/klines/{sym}/{itv}/{sym}-{itv}-{day}.zip"
+ZIP_MONTH = "https://data.binance.vision/data/spot/monthly/klines/{sym}/{itv}/{sym}-{itv}-{ym}.zip"
 
 # Farben (dataviz-Referenzpalette)
 INK, INK_2, MUTED, GRID = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
@@ -96,18 +132,32 @@ TEAL = "#1d8a72"                   # Gate (parallel)
 _QMASS = C.QMASS
 
 
+def hlabel(h):
+    return "1 Stunde" if h == 1 else f"{h} Stunden"
+
+
+def fmt_hour(ts):
+    # Stunde als Zeitraum in UTC, z.B. "15.11. 13–14 Uhr"
+    ts = pd.Timestamp(ts)
+    return f"{ts:%d.%m.} {ts:%H}–{(ts + STEP):%H} Uhr"
+
+
+def fmt_time(ts):
+    return f"{pd.Timestamp(ts):%d.%m. %H:%M}"
+
+
 # =====================================================================================
-# Daten: identisch zu Notebook 1
+# Daten: identisch zu Notebook 1 (Stunden-RV aus 1-Minuten-Kerzen, Zeitstempel = Beginn der Stunde, UTC)
 # =====================================================================================
-def daily_rv(close):
+def hourly_rv(close):
     r = np.log(close).diff().dropna()
-    day = r.index.floor("D").tz_localize(None)
-    daily = pd.DataFrame({"rv": (r**2).groupby(day).sum(),
-                          "ret": r.groupby(day).sum(),
-                          "n_bars": r.groupby(day).size()})
-    daily.index.name = "date"
-    ok = (daily["n_bars"] >= MIN_BARS_PER_DAY) & (daily["rv"] > 0)
-    return daily[ok]
+    hour = r.index.floor(FREQ).tz_localize(None)
+    out = pd.DataFrame({"rv": (r**2).groupby(hour).sum(),
+                        "ret": r.groupby(hour).sum(),
+                        "n_bars": r.groupby(hour).size()})
+    out.index.name = "date"
+    ok = (out["n_bars"] >= MIN_BARS) & (out["rv"] > 0)
+    return out[ok]
 
 
 def read_kline_zip(raw):
@@ -122,7 +172,7 @@ def read_kline_zip(raw):
 
 
 def fetch_close_api(sym, start, end):
-    # 5-Minuten-Schlusskurse [start, end) über die öffentliche Binance-API (ohne Schlüssel)
+    # 1-Minuten-Schlusskurse [start, end) über die öffentliche Binance-API (ohne Schlüssel)
     last_err = None
     for host in API_HOSTS:
         try:
@@ -130,7 +180,7 @@ def fetch_close_api(sym, start, end):
             end_ms = int(end.timestamp() * 1000)
             while cursor < end_ms:
                 r = requests.get(f"{host}/api/v3/klines", timeout=30, params={
-                    "symbol": sym, "interval": "5m", "startTime": cursor,
+                    "symbol": sym, "interval": "1m", "startTime": cursor,
                     "endTime": end_ms - 1, "limit": 1000})
                 r.raise_for_status()
                 batch = r.json()
@@ -146,87 +196,17 @@ def fetch_close_api(sym, start, end):
     raise RuntimeError(f"Binance-API nicht erreichbar ({last_err})")
 
 
-def fetch_close_zips(sym, first_day, last_day):
-    # Fallback: Tagesdateien von data.binance.vision (wie Notebook 1, nur täglich statt monatlich)
-    parts = []
-    for day in pd.date_range(first_day, last_day, freq="D"):
-        r = requests.get(DAILY_ZIP.format(sym=sym, day=day.strftime("%Y-%m-%d")), timeout=60)
-        if r.status_code in (403, 404):
-            continue
-        r.raise_for_status()
-        parts.append(read_kline_zip(r.content))
-    if not parts:
-        raise RuntimeError("Keine Tagesdateien gefunden")
-    close = pd.concat(parts).sort_index()
-    return close[~close.index.duplicated()]
-
-
-def load_daily(sym):
-    live = LIVE_DIR / f"{sym}_daily.parquet"
-    return pd.read_parquet(live if live.exists() else DATA_DIR / f"{sym}_daily.parquet")
-
-
-def append_new_days(d, close, today):
-    # neue vollständige Tage aus den Kursen berechnen und an die bestehenden anhängen
-    last = d.index[-1]
-    new = daily_rv(close)
-    new = new[(new.index > last) & (new.index < today)]
-    return pd.concat([d, new]), len(new)
-
-
-def update_daily(sym, fetch_api=fetch_close_api, fetch_zips=fetch_close_zips, now=None):
-    d = load_daily(sym)
-    now = now or pd.Timestamp.now(tz="UTC")
-    today = now.normalize().tz_localize(None)                  # heutiger UTC-Tag ist unvollständig
-    last = d.index[-1]
-    if last >= today - pd.Timedelta(days=1):
-        return d, 0
-    # ab der letzten Kerze des letzten bekannten Tages, damit die erste Rendite wie im Notebook entsteht
-    start = (last + pd.Timedelta(hours=23, minutes=55)).tz_localize("UTC")
-    end = today.tz_localize("UTC")
-    try:
-        close = fetch_api(sym, start, end)
-    except Exception:
-        close = fetch_zips(sym, last, today - pd.Timedelta(days=1))
-    out, n_new = append_new_days(d, close, today)
-    LIVE_DIR.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(LIVE_DIR / f"{sym}_daily.parquet")
-    return out, n_new
-
-
-# =====================================================================================
-# Tageskurse (Schlusskurs eines UTC-Tages) für die Kursspanne
-# =====================================================================================
-ZIP_1D_DAY = "https://data.binance.vision/data/spot/daily/klines/{sym}/1d/{sym}-1d-{day}.zip"
-ZIP_1D_MONTH = "https://data.binance.vision/data/spot/monthly/klines/{sym}/1d/{sym}-1d-{ym}.zip"
-PRICE_DAYS = 120
-
-
-def fetch_price_api(sym, first_day, last_day):
-    last_err = None
-    for host in API_HOSTS:
-        try:
-            r = requests.get(f"{host}/api/v3/klines", timeout=30, params={
-                "symbol": sym, "interval": "1d", "limit": 1000,
-                "startTime": int(first_day.tz_localize("UTC").timestamp() * 1000),
-                "endTime": int((last_day + pd.Timedelta(days=1)).tz_localize("UTC").timestamp() * 1000) - 1})
-            r.raise_for_status()
-            rows = r.json()
-            idx = pd.to_datetime([b[0] for b in rows], unit="ms").normalize()
-            return pd.Series([float(b[4]) for b in rows], index=idx, name="close")
-        except Exception as e:
-            last_err = e
-    raise RuntimeError(f"Binance-API nicht erreichbar ({last_err})")
-
-
-def fetch_price_zips(sym, first_day, last_day):
+def fetch_zips(sym, itv, first_day, last_day):
+    # Fallback: Dateien von data.binance.vision. Ganze Monate als Monatsdatei (wie Notebook 1),
+    # der laufende Monat als Tagesdateien (Monatsdateien erscheinen erst nach Monatsende).
+    first_day, last_day = pd.Timestamp(first_day).normalize(), pd.Timestamp(last_day).normalize()
     parts = []
     for m in pd.period_range(first_day, last_day, freq="M"):
         if m < last_day.to_period("M"):
-            urls = [ZIP_1D_MONTH.format(sym=sym, ym=m.strftime("%Y-%m"))]
+            urls = [ZIP_MONTH.format(sym=sym, itv=itv, ym=m.strftime("%Y-%m"))]
         else:
-            urls = [ZIP_1D_DAY.format(sym=sym, day=d.strftime("%Y-%m-%d"))
-                    for d in pd.date_range(m.start_time, last_day, freq="D")]
+            urls = [ZIP_DAY.format(sym=sym, itv=itv, day=d.strftime("%Y-%m-%d"))
+                    for d in pd.date_range(max(m.start_time, first_day), last_day, freq="D")]
         for url in urls:
             r = requests.get(url, timeout=60)
             if r.status_code in (403, 404):
@@ -235,8 +215,74 @@ def fetch_price_zips(sym, first_day, last_day):
             parts.append(read_kline_zip(r.content))
     if not parts:
         raise RuntimeError("Keine Kursdateien gefunden")
-    close = pd.concat(parts)
-    close.index = close.index.floor("D").tz_localize(None)
+    close = pd.concat(parts).sort_index()
+    return close[~close.index.duplicated(keep="last")]
+
+
+def fetch_close_zips(sym, first_day, last_day):
+    return fetch_zips(sym, "1m", first_day, last_day)
+
+
+def load_series(sym):
+    # Stunden-RV: Live-Stand, sonst Startbestand aus den Forschungsdaten (01_daten, data/binance_1h/)
+    live = LIVE_DIR / f"{sym}_rv.parquet"
+    return pd.read_parquet(live if live.exists() else settings().research_daily_dir / f"{sym}_daily.parquet")
+
+
+def append_new_hours(d, close, current_hour):
+    # neue vollständige Stunden aus den Kursen berechnen und an die bestehenden anhängen
+    last = d.index[-1]
+    new = hourly_rv(close)
+    new = new[(new.index > last) & (new.index < current_hour)]
+    return pd.concat([d, new]), len(new)
+
+
+def update_series(sym, fetch_api=fetch_close_api, fetch_zips=fetch_close_zips, now=None):
+    d = load_series(sym)
+    now = now or pd.Timestamp.now(tz="UTC")
+    current = now.floor(FREQ).tz_localize(None)                # laufende UTC-Stunde ist unvollständig
+    last = d.index[-1]
+    if last >= current - STEP:
+        return d, 0
+    # ab der letzten Kerze der letzten bekannten Stunde, damit die erste Rendite wie im Notebook entsteht
+    start = (last + STEP - pd.Timedelta(minutes=1)).tz_localize("UTC")
+    end = current.tz_localize("UTC")
+    try:
+        close = fetch_api(sym, start, end)
+    except Exception:
+        close = fetch_zips(sym, last, current - STEP)
+    out, n_new = append_new_hours(d, close, current)
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(LIVE_DIR / f"{sym}_rv.parquet")
+    return out, n_new
+
+
+# =====================================================================================
+# Stundenkurse (Schlusskurs einer UTC-Stunde, Zeitstempel = Beginn der Stunde) für die Kursspanne
+# =====================================================================================
+PRICE_HOURS = 24 * 30
+
+
+def fetch_price_api(sym, first_hour, last_hour):
+    last_err = None
+    for host in API_HOSTS:
+        try:
+            r = requests.get(f"{host}/api/v3/klines", timeout=30, params={
+                "symbol": sym, "interval": "1h", "limit": 1000,
+                "startTime": int(first_hour.tz_localize("UTC").timestamp() * 1000),
+                "endTime": int((last_hour + STEP).tz_localize("UTC").timestamp() * 1000) - 1})
+            r.raise_for_status()
+            rows = r.json()
+            idx = pd.to_datetime([b[0] for b in rows], unit="ms").floor(FREQ)
+            return pd.Series([float(b[4]) for b in rows], index=idx, name="close")
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Binance-API nicht erreichbar ({last_err})")
+
+
+def fetch_price_zips(sym, first_hour, last_hour):
+    close = fetch_zips(sym, "1h", first_hour, last_hour)
+    close.index = close.index.floor(FREQ).tz_localize(None)
     return close[~close.index.duplicated(keep="last")].sort_index()
 
 
@@ -247,11 +293,11 @@ def load_price(sym):
 
 def update_price(sym, fetch_api=fetch_price_api, fetch_zips=fetch_price_zips, now=None):
     now = now or pd.Timestamp.now(tz="UTC")
-    last = now.normalize().tz_localize(None) - pd.Timedelta(days=1)       # letzter vollständiger Tag
+    last = now.floor(FREQ).tz_localize(None) - STEP          # letzte vollständige Stunde
     old = load_price(sym)
     if old is not None and old.index[-1] >= last:
         return old
-    first = last - pd.Timedelta(days=PRICE_DAYS)
+    first = last - PRICE_HOURS * STEP
     try:
         new = fetch_api(sym, first, last)
     except Exception:
@@ -331,7 +377,7 @@ def forecast_coin(sym, origin, today, price=None):
             w_new = new_weights(w.reindex(POOL).fillna(0.0), avail_new)
             extra.append((COMBO_NEW, mix(res, w_new)))
 
-        target = origin + pd.Timedelta(days=h)
+        target = origin + h * STEP
         for m, (mean, q) in [(m, res[m]) for m in res] + extra:
             rows.append({"sid": sym, "origin": origin, "h": h, "target_date": target,
                          "model": m, "mean": float(mean), **dict(zip(QCOLS, np.asarray(q, float))),
@@ -345,7 +391,7 @@ def forecast_coin(sym, origin, today, price=None):
     if price is not None and origin in price.index and set(combo_q_by_h) == set(HORIZONS):
         p0 = float(price.loc[origin])
         for h, pq in price_range(combo_q_by_h, p0).items():
-            price_rows.append({"sid": sym, "origin": origin, "h": h, "target_date": origin + pd.Timedelta(days=h),
+            price_rows.append({"sid": sym, "origin": origin, "h": h, "target_date": origin + h * STEP,
                                "p0": p0, **dict(zip(PRICE_COLS, pq))})
     return pd.DataFrame(rows), pd.DataFrame(price_rows), notes
 
@@ -375,12 +421,16 @@ PRICE_LEVELS = [0.05, 0.25, 0.5, 0.75, 0.95]
 PRICE_COLS = [f"p{q:.2f}" for q in PRICE_LEVELS]
 
 
-def cumulative_variance(q1, q5, h):
-    # Varianz der h-Tages-Rendite je RV-Quantil: Summe der Tages-RV über Tag 1..h.
-    # Tage 2-4 werden in Logs zwischen der 1- und der 5-Tages-Prognose interpoliert;
-    # gleiche Quantile werden addiert (RV ist stark persistent).
-    l1, l5 = np.log(q1), np.log(q5)
-    return sum(np.exp(l1 + (k - 1) / 4 * (l5 - l1)) for k in range(1, h + 1))
+def cumulative_variance(q_by_h, h):
+    # Varianz der Rendite über die nächsten h Stunden je RV-Quantil: Summe der Stunden-RV 1..h.
+    # Zwischen den prognostizierten Horizonten (1 und 24) wird in Logs linear interpoliert, jenseits
+    # des grössten konstant; gleiche Quantile werden addiert (RV ist stark persistent).
+    hs = np.array(sorted(q_by_h))
+    L = np.log(np.stack([np.asarray(q_by_h[k], float) for k in hs]))          # (Horizonte, Quantile)
+    total = 0.0
+    for k in range(1, h + 1):
+        total = total + np.exp(np.array([np.interp(k, hs, L[:, j]) for j in range(L.shape[1])]))
+    return total
 
 
 def return_quantiles(var_q, levels=PRICE_LEVELS):
@@ -395,7 +445,7 @@ def return_quantiles(var_q, levels=PRICE_LEVELS):
 
 def price_range(q_rv, p0):
     # q_rv: {h: 21 kombinierte RV-Quantile}; p0: Schlusskurs am Ursprung -> {h: Kurs-Quantile}
-    return {h: p0 * np.exp(return_quantiles(cumulative_variance(q_rv[1], q_rv[5], h))) for h in HORIZONS}
+    return {h: p0 * np.exp(return_quantiles(cumulative_variance(q_rv, h))) for h in HORIZONS}
 
 
 def read_log():
@@ -432,8 +482,8 @@ def write_price_log(new):
 
 
 def vol(x):
-    # Tagesvarianz -> annualisierte Volatilität in Prozent
-    return np.sqrt(365 * np.asarray(x, float)) * 100
+    # Stundenvarianz -> annualisierte Volatilität in Prozent (Krypto handelt 365 × 24 Stunden)
+    return np.sqrt(365 * PER_DAY * np.asarray(x, float)) * 100
 
 
 def qlike(y, f):
@@ -447,20 +497,21 @@ def run_update(progress):
     for sym, label in SYMBOLS.items():
         progress.write(f"{label}: neue Daten laden …")
         try:
-            d, n_new = update_daily(sym)
+            d, n_new = update_series(sym)
         except Exception as e:
             report.append(("error", f"{label}: Daten konnten nicht geladen werden ({e}). Es wird mit dem letzten Stand prognostiziert."))
-            d, n_new = load_daily(sym), 0
+            d, n_new = load_series(sym), 0
         try:
             prices[sym] = update_price(sym)
         except Exception as e:
             prices[sym] = load_price(sym)
             report.append(("warning", f"{label}: Kurs konnte nicht geladen werden ({e})."))
         daily[sym] = d
-        report.append(("info", f"{label}: {n_new} neue Tage, Daten bis {d.index[-1]:%d.%m.%Y}."))
+        report.append(("info", f"{label}: {n_new} neue Stunden, Daten bis {fmt_hour(d.index[-1])} (UTC)."))
 
-    # 1. Experten für alle neuen Ursprünge rechnen (beim ersten Mal ab September 2026, danach nur neue Tage)
-    progress.write("Experten rechnen (beim ersten Mal einige Minuten, Modelle laden ca. 30–60 Sekunden) …")
+    # 1. Experten für alle neuen Ursprünge rechnen (beim ersten Mal ab September 2026, also einige tausend
+    #    Stunden pro Coin; danach nur die neuen Stunden)
+    progress.write("Experten rechnen (beim ersten Mal deutlich länger, Modelle laden ca. 30–60 Sekunden) …")
     errors = LV.update_forecasts(st_, daily, LIVE_MODELS, get_expert, progress.write)
     for m, err in errors.items():
         if m in POOL:
@@ -485,10 +536,10 @@ def run_update(progress):
         all_rows.append(fc)
         price_rows.append(prices_df)
         for h in notes:
-            report.append(("warning", f"{label} ({h} {'Tag' if h == 1 else 'Tage'} voraus): nicht alle Experten "
+            report.append(("warning", f"{label} ({hlabel(h)} voraus): nicht alle Experten "
                                       "des Pools verfügbar, deshalb ohne Gate."))
         if prices_df.empty and prices.get(sym) is not None:
-            report.append(("warning", f"{label}: Für den {origin:%d.%m.%Y} fehlt der Schlusskurs, "
+            report.append(("warning", f"{label}: Für die Stunde {fmt_hour(origin)} fehlt der Schlusskurs, "
                                       "deshalb gibt es diesmal keine Kursspanne."))
     if all_rows:
         write_log(pd.concat(all_rows, ignore_index=True))
@@ -532,27 +583,27 @@ def pct(share):
 
 
 def headline(d, fc):
-    last_day = d.index[-1]
-    cells = [f"""<div class="fc-cell"><div class="fc-when">Zuletzt gemessen, {last_day:%d.%m.}</div>
+    last = d.index[-1]
+    cells = [f"""<div class="fc-cell"><div class="fc-when">Zuletzt gemessen, {fmt_hour(last)}</div>
                  <div class="fc-value">{fmt_pct(vol(d['rv'].iloc[-1]))}</div>
-                 <div class="fc-range">Monatsschnitt {fmt_pct(vol(d['rv'].iloc[-22:].mean()))}</div></div>"""]
-    for h, when in [(1, "Prognose 1 Tag voraus"), (5, "Prognose 5 Tage voraus")]:
+                 <div class="fc-range">Schnitt der letzten 24 Stunden {fmt_pct(vol(d['rv'].iloc[-PER_DAY:].mean()))}</div></div>"""]
+    for h in HORIZONS:
         r = fc[(fc["model"] == COMBO) & (fc["h"] == h)].iloc[0]
-        cells.append(f"""<div class="fc-cell"><div class="fc-when">{when}, {r['target_date']:%d.%m.}</div>
+        cells.append(f"""<div class="fc-cell"><div class="fc-when">Prognose {hlabel(h)} voraus, {fmt_hour(r['target_date'])}</div>
                  <div class="fc-value is-forecast">{fmt_pct(vol(r['mean']))}</div>
                  <div class="fc-range">90&nbsp;% wahrscheinlich zwischen {vol(r['q0.05']):.0f} und {vol(r['q0.95']):.0f}&nbsp;%</div></div>""")
     st.markdown(f'<div class="fc-grid">{"".join(cells)}</div>', unsafe_allow_html=True)
 
 
-def history_chart(d, fc, days=90):
-    hist = d.iloc[-days:].reset_index().rename(columns={"date": "Datum"})
+def history_chart(d, fc, hours=CHART_HOURS):
+    hist = d.iloc[-hours:].rename_axis("Datum").reset_index()
     hist["Vola"] = vol(hist["rv"])
     c = fc[fc["model"] == COMBO].copy()
     c = c.assign(Datum=c["target_date"], Vola=vol(c["mean"]), Von=vol(c["q0.05"]), Bis=vol(c["q0.95"]),
-                 Horizont=c["h"].map({1: "1 Tag voraus", 5: "5 Tage voraus"}))
+                 Horizont=c["h"].map(lambda h: f"{hlabel(h)} voraus"))
 
     axis = dict(labelColor=MUTED, titleColor=INK_2, gridColor=GRID, domainColor="#c3c2b7", tickColor="#c3c2b7")
-    x = alt.X("Datum:T", title=None, axis=alt.Axis(format="%d.%m.", **axis))
+    x = alt.X("Datum:T", title=None, axis=alt.Axis(format="%d.%m. %H:%M", **axis))
     y_scale = alt.Scale(zero=False, nice=True)
     nearest = alt.selection_point(nearest=True, on="pointerover", fields=["Datum"], empty=False)
 
@@ -561,17 +612,17 @@ def history_chart(d, fc, days=90):
     hover = alt.Chart(hist).mark_point(size=60, filled=True, color=INK_2).encode(
         x=x, y="Vola:Q",
         opacity=alt.condition(nearest, alt.value(1), alt.value(0)),
-        tooltip=[alt.Tooltip("Datum:T", format="%d.%m.%Y"), alt.Tooltip("Vola:Q", title="Gemessen (%)", format=".0f")],
+        tooltip=[alt.Tooltip("Datum:T", format="%d.%m.%Y %H:%M"), alt.Tooltip("Vola:Q", title="Gemessen (%)", format=".0f")],
     ).add_params(nearest)
     rule = alt.Chart(hist).mark_rule(color=GRID).encode(x=x).transform_filter(nearest)
     band = alt.Chart(c).mark_rule(color=BLUE, strokeWidth=2, opacity=0.55).encode(x=x, y="Von:Q", y2="Bis:Q")
     pts = alt.Chart(c).mark_point(color=BLUE, filled=True, size=90, opacity=1).encode(
         x=x, y="Vola:Q",
-        tooltip=[alt.Tooltip("Horizont:N", title="Prognose"), alt.Tooltip("Datum:T", format="%d.%m.%Y"),
+        tooltip=[alt.Tooltip("Horizont:N", title="Prognose"), alt.Tooltip("Datum:T", format="%d.%m.%Y %H:%M"),
                  alt.Tooltip("Vola:Q", title="Erwartet (%)", format=".0f"),
                  alt.Tooltip("Von:Q", title="90 % ab (%)", format=".0f"),
                  alt.Tooltip("Bis:Q", title="90 % bis (%)", format=".0f")])
-    label = alt.Chart(c[c["h"] == 5]).mark_text(align="left", dx=10, color=BLUE, fontSize=12).encode(
+    label = alt.Chart(c[c["h"] == max(HORIZONS)]).mark_text(align="left", dx=10, color=BLUE, fontSize=12).encode(
         x=x, y="Vola:Q", text=alt.value("Prognose"))
     return (rule + line + hover + band + pts + label).properties(height=320).configure_view(strokeWidth=0)
 
@@ -608,7 +659,8 @@ def model_table(fc, order=MAIN_ORDER, weight_col="weight"):
         if r.empty:
             continue
         row = {"Modell": LABELS[m]}
-        for h, name in [(1, "1 Tag"), (5, "5 Tage")]:
+        for h in HORIZONS:
+            name = hlabel(h)
             x = r[r["h"] == h].iloc[0]
             w = x.get(weight_col, np.nan) if weight_col else np.nan
             row[f"Erwartet {name}"] = f"{vol(x['mean']):.0f} %"
@@ -626,7 +678,7 @@ def gate_section(fc, h):
     st.altair_chart(model_chart(fc, h, order=[COMBO, GATE], weight_col=None), width="stretch")
     month = fc.loc[fc["model"] == GATE, "model_month"].dropna()
     month = f" Modell für {pd.Timestamp(month.iloc[0]):%m.%Y}." if len(month) else ""
-    st.caption("Das lineare Gate wählt die Gewichte jeden Tag neu aus der Marktlage, den Abweichungen und den "
+    st.caption("Das lineare Gate wählt die Gewichte jede Stunde neu aus der Marktlage, den Abweichungen und den "
                "jüngsten Fehlern der Experten. Es läuft parallel zur Kombination (blau), fliesst aber weder in die "
                "Hauptprognose noch in die Kursspanne ein. Beide werden jeden Monat neu trainiert, wie im "
                f"Walk-Forward von 04_training.{month} Ob das Gate besser ist, zeigt das Logbuch.")
@@ -641,7 +693,7 @@ def new_models_section(sym, fc, h):
     st.subheader("Neu, nur live: t0 und Timestral", divider=False)
     if not fc["model"].isin(NEW_MODELS).any():
         st.info("t0 und Timestral sind in dieser Prognose nicht dabei. Installation und Prüfung: "
-                "`src/03_t0_timestral.ipynb`. Danach neu berechnen.")
+                "`src/archiv/03_t0_timestral.ipynb`. Danach neu berechnen.")
         return
     order = [COMBO] + NEW_ORDER
     st.altair_chart(model_chart(fc, h, order=order, weight_col="weight_new"), width="stretch")
@@ -659,43 +711,45 @@ def fmt_price(x):
 
 def price_headline(sub):
     p0, origin = sub["p0"].iloc[0], sub["origin"].iloc[0]
-    cells = [f"""<div class="fc-cell"><div class="fc-when">Schlusskurs, {origin:%d.%m.}</div>
+    cells = [f"""<div class="fc-cell"><div class="fc-when">Kurs um {fmt_time(origin + STEP)} Uhr</div>
                  <div class="fc-value is-range">{fmt_price(p0)}&nbsp;$</div>
                  <div class="fc-range">in US-Dollar (USDT)</div></div>"""]
     for h in HORIZONS:
         r = sub[sub["h"] == h].iloc[0]
         down, up = 100 * (1 - r["p0.05"] / p0), 100 * (r["p0.95"] / p0 - 1)
-        cells.append(f"""<div class="fc-cell"><div class="fc-when">Spanne für den Schlusskurs am {r['target_date']:%d.%m.}</div>
+        cells.append(f"""<div class="fc-cell"><div class="fc-when">Spanne für den Kurs um {fmt_time(r['target_date'] + STEP)} Uhr</div>
                  <div class="fc-value is-forecast is-range">{fmt_price(r['p0.05'])} – {fmt_price(r['p0.95'])}</div>
                  <div class="fc-range">90&nbsp;% wahrscheinlich, also −{down:.1f}&nbsp;% bis +{up:.1f}&nbsp;%</div></div>""")
     st.markdown(f'<div class="fc-grid">{"".join(cells)}</div>', unsafe_allow_html=True)
 
 
-def price_chart(price, sub, days=90):
-    hist = price.iloc[-days:].rename("Kurs").rename_axis("Datum").reset_index()
+def price_chart(price, sub, hours=CHART_HOURS):
+    # Kurse auf das Ende der Stunde datiert: Index = Beginn der Stunde, Schlusskurs gilt eine Stunde später
+    hist = price.iloc[-hours:].rename("Kurs").rename_axis("Datum").reset_index()
+    hist["Datum"] = hist["Datum"] + STEP
     hist["Schlusskurs"] = hist["Kurs"].map(fmt_price)
-    c = sub.assign(Datum=sub["target_date"], Mitte=sub["p0.50"], Von90=sub["p0.05"], Bis90=sub["p0.95"],
+    c = sub.assign(Datum=sub["target_date"] + STEP, Mitte=sub["p0.50"], Von90=sub["p0.05"], Bis90=sub["p0.95"],
                    Von50=sub["p0.25"], Bis50=sub["p0.75"],
-                   Horizont=sub["h"].map({1: "1 Tag voraus", 5: "5 Tage voraus"}))
+                   Horizont=sub["h"].map(lambda h: f"{hlabel(h)} voraus"))
     for col in ["Von90", "Bis90", "Von50", "Bis50"]:
         c[f"{col}_txt"] = c[col].map(fmt_price)
     axis = dict(labelColor=MUTED, titleColor=INK_2, gridColor=GRID, domainColor="#c3c2b7", tickColor="#c3c2b7")
-    x = alt.X("Datum:T", title=None, axis=alt.Axis(format="%d.%m.", **axis))
+    x = alt.X("Datum:T", title=None, axis=alt.Axis(format="%d.%m. %H:%M", **axis))
     nearest = alt.selection_point(nearest=True, on="pointerover", fields=["Datum"], empty=False)
     line = alt.Chart(hist).mark_line(color=INK_2, strokeWidth=2).encode(
         x=x, y=alt.Y("Kurs:Q", title="Kurs (US-Dollar)", scale=alt.Scale(zero=False),
                      axis=alt.Axis(labelExpr="replace(format(datum.value, ',.0f'), /,/g, \"'\")", **axis)))
     hover = alt.Chart(hist).mark_point(size=60, filled=True, color=INK_2).encode(
         x=x, y="Kurs:Q", opacity=alt.condition(nearest, alt.value(1), alt.value(0)),
-        tooltip=[alt.Tooltip("Datum:T", format="%d.%m.%Y"), alt.Tooltip("Schlusskurs:N")],
+        tooltip=[alt.Tooltip("Datum:T", format="%d.%m.%Y %H:%M"), alt.Tooltip("Schlusskurs:N")],
     ).add_params(nearest)
     rule = alt.Chart(hist).mark_rule(color=GRID).encode(x=x).transform_filter(nearest)
-    tip = [alt.Tooltip("Horizont:N", title="Spanne"), alt.Tooltip("Datum:T", format="%d.%m.%Y"),
+    tip = [alt.Tooltip("Horizont:N", title="Spanne"), alt.Tooltip("Datum:T", format="%d.%m.%Y %H:%M"),
            alt.Tooltip("Von90_txt:N", title="90 % ab"), alt.Tooltip("Bis90_txt:N", title="90 % bis"),
            alt.Tooltip("Von50_txt:N", title="50 % ab"), alt.Tooltip("Bis50_txt:N", title="50 % bis")]
     r90 = alt.Chart(c).mark_rule(color=BLUE, strokeWidth=2, opacity=0.55).encode(x=x, y="Von90:Q", y2="Bis90:Q", tooltip=tip)
     r50 = alt.Chart(c).mark_rule(color=BLUE, strokeWidth=7, opacity=0.9).encode(x=x, y="Von50:Q", y2="Bis50:Q", tooltip=tip)
-    label = alt.Chart(c[c["h"] == 5]).mark_text(align="left", dx=10, color=BLUE, fontSize=12).encode(
+    label = alt.Chart(c[c["h"] == max(HORIZONS)]).mark_text(align="left", dx=10, color=BLUE, fontSize=12).encode(
         x=x, y="Mitte:Q", text=alt.value("Spanne"))
     return (rule + line + hover + r90 + r50 + label).properties(height=300).configure_view(strokeWidth=0)
 
@@ -709,20 +763,20 @@ def price_section(sym, plog, origin):
         return
     price_headline(sub)
     st.altair_chart(price_chart(price, sub), width="stretch")
-    st.caption("Grau: Schlusskurs der letzten 90 Tage. Blau: Spanne aus der Vola-Prognose, dünn 90 %, dick 50 %. "
+    st.caption("Grau: stündlicher Schlusskurs der letzten 7 Tage. Blau: Spanne aus der Vola-Prognose, dünn 90 %, dick 50 %. "
                "Die Spanne zeigt, wie weit sich der Kurs bei der erwarteten Volatilität bewegen kann. "
                "Sie sagt nichts über die Richtung voraus und ist keine Anlageempfehlung.")
 
 
 def coin_view(sym, log, plog):
-    d = load_daily(sym)
+    d = load_series(sym)
     sub = log[log["sid"] == sym] if not log.empty else log
     if sub.empty:
         st.info("Für diesen Coin gibt es noch keine Prognose. Klicke oben auf «Daten laden und Prognose berechnen».")
         return
     fc = sub[sub["origin"] == sub["origin"].max()]
     if fc["origin"].iloc[0] < d.index[-1]:
-        st.warning(f"Die angezeigte Prognose stammt vom Datenstand {fc['origin'].iloc[0]:%d.%m.%Y}. "
+        st.warning(f"Die angezeigte Prognose stammt vom Datenstand {fmt_hour(fc['origin'].iloc[0])}. "
                    "Es gibt neuere Daten. Berechne die Prognose neu.")
     n_exp = int(fc.loc[fc["model"] == COMBO, "n_experts"].iloc[0])
     if n_exp < len(POOL):
@@ -730,14 +784,16 @@ def coin_view(sym, log, plog):
 
     headline(d, fc)
     st.altair_chart(history_chart(d, fc), width="stretch")
-    st.caption("Grau: gemessene Volatilität der letzten 90 Tage. Blau: Prognose der Kombination mit 90-%-Bereich.")
+    st.caption("Grau: gemessene Volatilität pro Stunde in den letzten 7 Tagen. Blau: Prognose der Kombination "
+               "mit 90-%-Bereich.")
 
     price_section(sym, plog, fc["origin"].iloc[0])
 
     st.subheader("Was die einzelnen Modelle sagen", divider=False)
-    h_choice = st.segmented_control("Horizont", ["1 Tag voraus", "5 Tage voraus"], default="1 Tag voraus",
+    choices = {f"{hlabel(h)} voraus": h for h in HORIZONS}
+    h_choice = st.segmented_control("Horizont", list(choices), default=list(choices)[0],
                                     key=f"h_{sym}", label_visibility="collapsed")
-    h = 5 if h_choice == "5 Tage voraus" else 1
+    h = choices.get(h_choice, HORIZONS[0])
     st.altair_chart(model_chart(fc, h), width="stretch")
     with st.expander("Als Tabelle anzeigen"):
         st.dataframe(model_table(fc), width="stretch")
@@ -758,21 +814,21 @@ def log_summary(done, order):
 
 
 def logbook_view(log):
-    st.write("Jede berechnete Prognose wird gespeichert. Sobald der Zieltag vorbei ist, "
+    st.write("Jede berechnete Prognose wird gespeichert. Sobald die Zielstunde vorbei ist, "
              "steht hier, was tatsächlich eingetreten ist. Ausgewertet werden nur Prognosen "
-             "für Tage nach der Testperiode (ab September 2026).")
+             "für Stunden nach der Testperiode (ab September 2026).")
     if log.empty:
         st.info("Das Logbuch ist noch leer.")
         return
     st.subheader("Volatilität", divider=False)
-    real = pd.concat([load_daily(s)["rv"].rename("y").to_frame().assign(sid=s) for s in SYMBOLS])
+    real = pd.concat([load_series(s)["rv"].rename("y").to_frame().assign(sid=s) for s in SYMBOLS])
     real = real.rename_axis("target_date").reset_index()
     ev = log.merge(real, on=["sid", "target_date"], how="left")
     ev = ev[ev["target_date"] > pd.Timestamp(TEST_END)]
     done = ev.dropna(subset=["y"])
 
     if done.empty:
-        st.info("Noch keine Prognose kann überprüft werden. Der erste Zieltag ist noch nicht vorbei.")
+        st.info("Noch keine Prognose kann überprüft werden. Die erste Zielstunde ist noch nicht vorbei.")
     else:
         done = done.assign(qlike=qlike(done["y"].to_numpy(), done["mean"].to_numpy()),
                            inside=(done["y"] >= done["q0.05"]) & (done["y"] <= done["q0.95"]))
@@ -785,14 +841,14 @@ def logbook_view(log):
 
         gate_done = done[done["model"] == GATE]
         if not gate_done.empty:
-            st.markdown("**Gate (parallel).** Verglichen auf denselben Tagen wie die Kombination.")
+            st.markdown("**Gate (parallel).** Verglichen auf denselben Stunden wie die Kombination.")
             keys = gate_done[["sid", "origin", "h"]].drop_duplicates()
             same = done.merge(keys, on=["sid", "origin", "h"])
             st.dataframe(log_summary(same, [COMBO, GATE]), width="stretch")
 
         new_done = done[done["model"] == COMBO_NEW]
         if not new_done.empty:
-            st.markdown("**Neu, nur live: t0 und Timestral.** Verglichen auf denselben Tagen, also nur auf "
+            st.markdown("**Neu, nur live: t0 und Timestral.** Verglichen auf denselben Stunden, also nur auf "
                         "Prognosen, bei denen die neuen Modelle schon mitliefen.")
             keys = new_done[["sid", "origin", "h"]].drop_duplicates()
             same = done.merge(keys, on=["sid", "origin", "h"])
@@ -800,8 +856,8 @@ def logbook_view(log):
 
     combo = ev[ev["model"] == COMBO].sort_values(["target_date", "sid", "h"], ascending=[False, True, True])
     table = pd.DataFrame({
-        "Coin": combo["sid"].map(SYMBOLS), "Zieltag": combo["target_date"].dt.strftime("%d.%m.%Y"),
-        "Horizont": combo["h"].map({1: "1 Tag", 5: "5 Tage"}),
+        "Coin": combo["sid"].map(SYMBOLS), "Zielstunde": combo["target_date"].map(fmt_hour),
+        "Horizont": combo["h"].map(hlabel),
         "Prognose": [f"{v:.0f} %" for v in vol(combo["mean"])],
         "90 %-Bereich": [f"{vol(a):.0f} – {vol(b):.0f} %" for a, b in zip(combo["q0.05"], combo["q0.95"])],
         "Gemessen": [("–" if pd.isna(y) else f"{vol(y):.0f} %") for y in combo["y"]],
@@ -832,8 +888,8 @@ def price_logbook_view():
         st.markdown(f"**{len(done)} überprüfte Spannen.** Im 90-%-Bereich: {pct(in90)} (Soll 90 %). "
                     f"Im 50-%-Bereich: {pct(in50)} (Soll 50 %).")
     table = pd.DataFrame({
-        "Coin": ev["sid"].map(SYMBOLS), "Schlusskurs am": ev["target_date"].dt.strftime("%d.%m.%Y"),
-        "Horizont": ev["h"].map({1: "1 Tag", 5: "5 Tage"}),
+        "Coin": ev["sid"].map(SYMBOLS), "Kurs um": (ev["target_date"] + STEP).map(fmt_time),
+        "Horizont": ev["h"].map(hlabel),
         "Spanne 90 %": [f"{fmt_price(a)} – {fmt_price(b)}" for a, b in zip(ev["p0.05"], ev["p0.95"])],
         "Tatsächlich": [("–" if pd.isna(y) else fmt_price(y)) for y in ev["close_real"]],
         "Im Bereich": [("offen" if pd.isna(y) else ("ja" if lo <= y <= hi else "nein"))
@@ -845,23 +901,24 @@ def price_logbook_view():
 def method_view():
     st_ = settings()
     st.markdown(f"""
-**Was wird prognostiziert?** Die realisierte Varianz (RV) eines UTC-Tages: die Summe der quadrierten
-5-Minuten-Log-Renditen. Angezeigt wird sie als annualisierte Volatilität √(365 · RV).
+**Was wird prognostiziert?** Die realisierte Varianz (RV) einer UTC-Stunde: die Summe der quadrierten
+1-Minuten-Log-Renditen (Datensatz `binance_1h`), 1 und 24 Stunden voraus. Angezeigt wird sie als
+annualisierte Volatilität √(365 · 24 · RV).
 
-**Woher kommt die Prognose?** Vier Experten prognostizieren die RV aus ihrem bisherigen Verlauf:
-Chronos-2 und TimesFM-2.5 (vortrainierte Foundation Models, zero-shot), HAR und GARCH (Ökonometrie).
-Sie rechnen mit demselben Code wie die Notebooks (`src/pipeline/experts.py`).
+**Woher kommt die Prognose?** Die Kombination verwendet die Experten aus dem Trainingslauf
+(`{st_.run}`): {", ".join(LABELS.get(m, m) for m in st_.pool)}. HAR, GARCH und der Random Walk laufen zum Vergleich mit.
+Alle rechnen mit demselben Code wie die Notebooks (`src/pipeline/experts.py`).
 
 **Wie werden sie kombiniert?** Wie im Walk-Forward von `04_training`: Jeden Monat werden zwei Methoden
 neu trainiert, mit allen Zielen, die vor Monatsbeginn bekannt sind, und dann den ganzen Monat verwendet.
 
 - **Kombination** (Hauptprognose): «Statisch», ein fester Gewichtsvektor pro Monat.
-- **Gate** (parallel): das lineare Gate. Es berechnet die Gewichte jeden Tag neu aus
-  den Features (Marktlage, Abweichungen der Experten, ihre jüngsten Fehler, Wochenende). λ wird wie in 04 auf den letzten {st_.tune_days} Tagen des Trainings gewählt.
+- **Gate** (parallel): das lineare Gate. Es berechnet die Gewichte aus
+  den Features (Marktlage, Abweichungen der Experten, ihre jüngsten Fehler, Wochenende), jede Stunde neu. λ wird wie in 04 auf den letzten {st_.tune_days} Tagen des Trainings gewählt.
 
 **Testperiode:** Ziele von {st_.test_start:%d.%m.%Y} bis {st_.test_end:%d.%m.%Y} sind für die finale Auswertung
 gesperrt. Sie werden nicht trainiert und im Logbuch nicht ausgewertet. Als Vergangenheit (Kontext der Experten,
-gleitende Features) sind diese Tage wie jede Historie sichtbar.
+gleitende Features) sind diese Stunden wie jede Historie sichtbar.
 """)
     mods = month_models()
     if mods:
@@ -869,7 +926,7 @@ gleitende Features) sind diese Tage wie jede Historie sichtbar.
         for (month, h), mod in sorted(mods.items(), key=lambda kv: (kv[0][0], kv[0][1]), reverse=True):
             i_s, i_g = mod["info"][LV.STATIC], mod["info"][LV.GATE]
             ws = last_weights_of(mod)
-            rows.append({"Monat": f"{month:%m.%Y}", "Horizont": f"{h} T.",
+            rows.append({"Monat": f"{month:%m.%Y}", "Horizont": f"{h} h",
                          "Trainiert bis": f"{i_s['train_to']:%d.%m.%Y}", "Zeilen": i_s["n_train"],
                          "λ Gate": f"{i_g['lam']:g}", **{LABELS.get(m, m): pct(v) for m, v in ws.items()}})
         st.markdown("**Monatsmodelle** (Gewichte = Kombination «Statisch»):")
@@ -877,18 +934,19 @@ gleitende Features) sind diese Tage wie jede Historie sichtbar.
     else:
         st.info("Noch kein Monatsmodell trainiert. Das passiert beim ersten Klick auf «Daten laden und Prognose berechnen».")
     st.markdown("""
-**Wie lese ich den 90-%-Bereich?** Mit 90 % Wahrscheinlichkeit liegt die Volatilität des Tages in
+**Wie lese ich den 90-%-Bereich?** Mit 90 % Wahrscheinlichkeit liegt die Volatilität der Stunde in
 diesem Bereich. Je breiter er ist, desto unsicherer sind die Modelle.
 
-**Wie entsteht die Kursspanne?** Die RV eines Tages misst die Varianz der Tagesrendite. Bei bekannter
+**Wie entsteht die Kursspanne?** Die RV einer Stunde misst die Varianz der Stundenrendite. Bei bekannter
 Varianz ist die Rendite ungefähr normalverteilt mit Mittelwert 0. Weil die Vola-Prognose selbst unsicher ist,
-wird über ihre 21 Quantile gemischt. Für 5 Tage werden die Varianzen der Tage 1 bis 5 addiert, die Tage 2 bis 4
-werden zwischen der 1- und der 5-Tages-Prognose interpoliert. Die Mitte der Spanne ist der letzte Schlusskurs:
-Die Spanne sagt, wie weit sich der Kurs bewegen kann, nicht in welche Richtung. Sie beruht auf der Kombination.
+wird über ihre 21 Quantile gemischt. Für 24 Stunden werden die Varianzen der Stunden 1 bis 24 addiert, die
+Stunden 2 bis 23 werden in Logs zwischen der 1- und der 24-Stunden-Prognose interpoliert (das Tagesmuster der
+Vola wird dabei nicht abgebildet). Die Mitte der Spanne ist der letzte Schlusskurs: Die Spanne sagt, wie weit
+sich der Kurs bewegen kann, nicht in welche Richtung. Sie beruht auf der Kombination.
 
-**Was passiert mit den Forschungsdaten?** Nichts. Neue Tage, die Live-Prognosen der Experten
-(`src/data/live/forecasts/`), die Monatsmodelle (`src/data/live/models/`) und das Logbuch liegen in
-`src/data/live/`.
+**Was passiert mit den Forschungsdaten?** Nichts. Neue Stunden, die Live-Prognosen der Experten
+(`src/data/live/binance_1h/forecasts/`), die Monatsmodelle (`src/data/live/binance_1h/models/`) und das
+Logbuch liegen in `src/data/live/binance_1h/`.
 
 **Was ist mit t0 und Timestral?** Die beiden Foundation Models (t0-gamma von The Forecasting Company,
 Timestral-209M von Mistral AI) sind im September bzw. Oktober 2026 erschienen, also nach unserer
@@ -916,10 +974,19 @@ def main():
     with top_r:
         clicked = st.button("Daten laden und Prognose berechnen", type="primary", width="stretch")
 
+    problems = setup_problems()
+    if problems:
+        st.error("Die App kann noch nicht rechnen, weil Forschungsdaten fehlen. Die Notebooks in `src/` "
+                 "der Reihe nach laufen lassen und die App danach neu laden (Menü oben rechts → «Clear cache», "
+                 "dann «Rerun»):")
+        for p in problems:
+            st.markdown(f"- {p}")
+        st.stop()
+
     log, plog = read_log(), read_price_log()
-    stand = max(load_daily(s).index[-1] for s in SYMBOLS)
+    stand = max(load_series(s).index[-1] for s in SYMBOLS)
     made = f", zuletzt berechnet am {log['made_at'].max():%d.%m.%Y um %H:%M} UTC" if not log.empty else ""
-    st.markdown(f'<p class="lead">Daten bis {stand:%d.%m.%Y}{made}.</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="lead">Daten bis {fmt_hour(stand)} (UTC){made}.</p>', unsafe_allow_html=True)
 
     if clicked:
         with st.status("Prognose wird berechnet …", expanded=True) as status:
