@@ -40,8 +40,7 @@ class RVSeries:
         if C.ORIGIN_START:
             first = max(first, int(np.searchsorted(self.dates, pd.Timestamp(C.ORIGIN_START))))
         self.origins = np.arange(first, last)
-
-        # HAR: rolling(5) → rolling(24), rolling(22) → rolling(168), max(21, ...) → max(167, ...)
+        self.per_day = C.steps_per_day(self.dates)      # 24 bei Stundendaten, 1 bei Tagesdaten
 
 
 class Expert:
@@ -76,12 +75,13 @@ class RandomWalk(Expert):
 class EWMA(Expert):
     name = "EWMA"
 
-    def __init__(self, halflife=5):
-        self.halflife = halflife
+    def __init__(self, halflife_days=5):
+        self.halflife_days = halflife_days
 
     def forecast(self, s, origins):
         L = s.logrv
-        sm = pd.Series(L).ewm(halflife=self.halflife).mean().to_numpy()   # kausal: nur Daten bis t
+        hl = self.halflife_days * s.per_day                                # in Schritten (Stundendaten: 120)
+        sm = pd.Series(L).ewm(halflife=hl).mean().to_numpy()              # kausal: nur Daten bis t
         mean, q = self._alloc(len(origins))
         for i, t in enumerate(origins):
             lo = max(0, t - C.EST_WINDOW + 1)
@@ -95,14 +95,22 @@ class HAR(Expert):
     # log-HAR (Corsi 2009): direkte Prognose je Horizont, OLS im rollierenden Fenster
     name = "HAR"
 
+    @staticmethod
+    def windows(per_day):
+        # Mittelungsfenster in Schritten neben dem letzten Wert
+        if per_day > 1:                 # Intraday: Stunde, Tag, Woche (Krypto handelt 7 Tage)
+            return per_day, 7 * per_day
+        return 5, 22                    # Tagesdaten: Tag, Woche, Monat (Corsi 2009)
+
     def forecast(self, s, origins):
         rv = pd.Series(s.rv)
+        w_short, w_long = self.windows(s.per_day)
         X = np.column_stack([np.ones(len(rv)), np.log(rv),
-                             np.log(rv.rolling(5).mean()), np.log(rv.rolling(22).mean())])
+                             np.log(rv.rolling(w_short).mean()), np.log(rv.rolling(w_long).mean())])
         L = s.logrv
         mean, q = self._alloc(len(origins))
         for i, t in enumerate(origins):
-            lo = max(21, t - C.EST_WINDOW + 1)
+            lo = max(w_long - 1, t - C.EST_WINDOW + 1)
             for j, h in enumerate(C.HORIZONS):
                 rows = np.arange(lo, t - h + 1)        # nur Zeilen, deren Ziel u+h <= t schon bekannt ist
                 beta, *_ = np.linalg.lstsq(X[rows], L[rows + h], rcond=None)
@@ -325,13 +333,13 @@ NEW_MODELS = ["t0-gamma", "Timestral-209M"]     # nach der Testperiode erschiene
 def forecast_frame(name, s, origins, mean, q):
     """Prognosen im Format der Ergebnisdateien: eine Zeile pro Ursprung und Horizont.
     Ist das Ziel noch nicht bekannt (letzte Ursprünge in der App), sind `y` = NaN und
-    `target_date` = Ursprung + h Kalendertage."""
+    `target_date` = Ursprung + h Zeitschritte (Stundendaten: Stunden, Tagesdaten: Tage)."""
     origins = np.asarray(origins)
     parts = []
     for j, h in enumerate(C.HORIZONS):
         tgt = origins + h
         known = tgt < len(s.dates)
-        td = pd.DatetimeIndex(s.dates[origins]) + pd.Timedelta(days=h)
+        td = pd.DatetimeIndex(s.dates[origins]) + h * (pd.Timedelta(days=1) / s.per_day)
         td = td.where(~known, pd.DatetimeIndex(s.dates[np.minimum(tgt, len(s.dates) - 1)]))
         df = pd.DataFrame({"sid": s.sid, "model": name, "h": h,
                            "origin": s.dates[origins], "target_date": td,

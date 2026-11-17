@@ -42,7 +42,7 @@ class Settings:
     test_start: pd.Timestamp
     test_end: pd.Timestamp
     research_dir: Path              # Prognosen der Forschung (results/)
-    research_daily_dir: Path        # Tagesdaten der Forschung (Ende = Ende der Forschungsdaten)
+    research_daily_dir: Path        # RV-Daten der Forschung, je nach Datensatz Tage oder Stunden
     live_dir: Path
     run: str
     notes: list = field(default_factory=list)
@@ -54,6 +54,9 @@ class Settings:
     @property
     def model_dir(self):
         return self.live_dir / "models"
+
+
+EXO_GROUPS = {"exo", "volume", "dvol", "markets"}   # Gruppen aus exo_*-Spalten (pipeline/exo.py)
 
 
 def load_settings(src_dir, live_dir, dataset="binance", run=None):
@@ -73,6 +76,9 @@ def load_settings(src_dir, live_dir, dataset="binance", run=None):
     else:
         names = {f.name for f in fields(F.FeatureConfig)} - {"pool", "sids"}
         fcfg = F.FeatureConfig(pool, sids, **{k: v for k, v in panel.items() if k in names})
+    # Die App rechnet für neue Stunden keine exo_*-Spalten (Volumen, DVOL, VIX/ES). Ohne diese Gruppen
+    # trainiert das Gate der App nur auf Features, die es live auch hat (Kalender bleibt, er hängt nur am Datum).
+    fcfg.groups = [g for g in fcfg.groups if g not in EXO_GROUPS]
     daily_dir = src_dir / info["daily_dir"]
     test_end = max(pd.read_parquet(daily_dir / f"{sid}_daily.parquet").index.max() for sid in sids)
     return Settings(

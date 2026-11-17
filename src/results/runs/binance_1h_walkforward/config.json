@@ -91,6 +91,18 @@
     ],
     [
       "exo"
+    ],
+    [
+      "volume"
+    ],
+    [
+      "dvol"
+    ],
+    [
+      "markets"
+    ],
+    [
+      "calendar"
     ]
   ],
   "LEGACY": false,
@@ -109,6 +121,10 @@
     "Method(name='Gating linear', make=<class 'pipeline.combine.Gate'>, grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating linear [recent]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('recent',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating linear [market]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('market',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [volume]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('volume',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [dvol]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('dvol',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [markets]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('markets',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [calendar]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('calendar',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating MLP', make=functools.partial(<class 'pipeline.combine.Gate'>, hidden=16, seeds=3), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})"
   ],
   "M": 2,
@@ -125,13 +141,32 @@
       "disagree_Chronos-2-full"
     ],
     "recent": [
-      "recent24_Chronos-2-full",
-      "recent168_Chronos-2-full"
+      "recent10_Chronos-2-full",
+      "recent60_Chronos-2-full"
     ],
     "calendar": [
       "weekend",
       "hour_sin",
-      "hour_cos"
+      "hour_cos",
+      "us_open",
+      "fomc",
+      "cpi",
+      "event_day"
+    ],
+    "volume": [
+      "exo_vol_logrel",
+      "exo_vol_trades_rel",
+      "exo_vol_taker"
+    ],
+    "dvol": [
+      "exo_dvol_level",
+      "exo_dvol_vrp",
+      "exo_dvol_proxy"
+    ],
+    "markets": [
+      "exo_mkt_vix",
+      "exo_mkt_spx_ret",
+      "exo_mkt_closed"
     ]
   },
   "panel": {
@@ -150,15 +185,23 @@
       "disagree",
       "recent",
       "calendar",
-      "exo"
+      "volume",
+      "dvol",
+      "markets"
     ],
     "halflives": [
-      24,
-      168
+      10,
+      60
     ],
     "min_periods": 5,
     "level": "relative",
-    "level_window": 6000,
-    "drop_redundant": true
+    "level_window": 250,
+    "drop_redundant": true,
+    "calendar": [
+      "weekend",
+      "hour",
+      "us_open",
+      "events"
+    ]
   }
 }
