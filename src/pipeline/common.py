@@ -42,6 +42,20 @@ def mean_from_quantiles(q):
     return q @ QMASS                                             # E[Y] als Integral der Quantilfunktion
 
 
+def cap_quantiles(fc, k=8.0):
+    """Quantile auf [Median·e^-k, Median·e^k] begrenzen, Mittelwert in gekappten Zeilen neu aus den Quantilen.
+    Chronos-2 und TiRex liefern auf Volatilität vereinzelt q0.99 bis e^40 über dem Median. Mit k=8 trifft
+    das nur diese Ausreisser; breite, aber echte Verteilungen (RW, HAR, GARCH: max. ~e^7) bleiben unverändert."""
+    Q = fc[QCOLS].to_numpy()
+    med = fc["q0.50"].to_numpy()[:, None]
+    Qc = np.clip(Q, med * np.exp(-k), med * np.exp(k))
+    hit = (np.abs(Qc - Q) > 0).any(axis=1)
+    fc = fc.copy()
+    fc[QCOLS] = Qc
+    fc.loc[hit, "mean"] = mean_from_quantiles(Qc[hit])
+    return fc
+
+
 def dist_from_log_resid(log_point, resid):
     # Log-Punktprognose + empirische Log-Residuen -> (Mittelwert, Quantile) auf RV-Skala
     resid = resid[np.isfinite(resid)]
