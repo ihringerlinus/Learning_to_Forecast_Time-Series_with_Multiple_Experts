@@ -7,6 +7,22 @@ h,fold,Methode,lam,Loss tune
 1,2025-11-01,Gating linear,0.01,15.922831156371855
 1,2025-11-01,Gating linear,0.1,18.555349894884806
 1,2025-11-01,Gating linear,1.0,22.474886648522624
+1,2025-11-01,Gating linear [disagree+recent],0.0,35.444646349726256
+1,2025-11-01,Gating linear [disagree+recent],1e-06,35.40321797573082
+1,2025-11-01,Gating linear [disagree+recent],1e-05,35.451165902978985
+1,2025-11-01,Gating linear [disagree+recent],0.0001,35.71962980603161
+1,2025-11-01,Gating linear [disagree+recent],0.001,36.40453346997821
+1,2025-11-01,Gating linear [disagree+recent],0.01,34.193632953504434
+1,2025-11-01,Gating linear [disagree+recent],0.1,26.162322806654753
+1,2025-11-01,Gating linear [disagree+recent],1.0,23.18015974166252
+1,2025-11-01,Gating linear [disagree],0.0,38.43516823513383
+1,2025-11-01,Gating linear [disagree],1e-06,38.4343307312674
+1,2025-11-01,Gating linear [disagree],1e-05,38.4260859664831
+1,2025-11-01,Gating linear [disagree],0.0001,38.3510658970503
+1,2025-11-01,Gating linear [disagree],0.001,37.78228790568673
+1,2025-11-01,Gating linear [disagree],0.01,33.528315737173145
+1,2025-11-01,Gating linear [disagree],0.1,25.535807987942764
+1,2025-11-01,Gating linear [disagree],1.0,23.104792533748867
 1,2025-11-01,Gating linear [recent],0.0,35.34905555143556
 1,2025-11-01,Gating linear [recent],1e-06,35.351193482376125
 1,2025-11-01,Gating linear [recent],1e-05,35.306815442715646
@@ -71,6 +87,22 @@ h,fold,Methode,lam,Loss tune
 1,2025-12-01,Gating linear,0.01,21.728120356036378
 1,2025-12-01,Gating linear,0.1,22.932187261601744
 1,2025-12-01,Gating linear,1.0,24.387719736018877
+1,2025-12-01,Gating linear [disagree+recent],0.0,51.23800707038065
+1,2025-12-01,Gating linear [disagree+recent],1e-06,51.238056069742186
+1,2025-12-01,Gating linear [disagree+recent],1e-05,51.238191150095574
+1,2025-12-01,Gating linear [disagree+recent],0.0001,51.23888649209945
+1,2025-12-01,Gating linear [disagree+recent],0.001,51.23899372565282
+1,2025-12-01,Gating linear [disagree+recent],0.01,48.02706505245317
+1,2025-12-01,Gating linear [disagree+recent],0.1,31.14011661151838
+1,2025-12-01,Gating linear [disagree+recent],1.0,25.094539368855735
+1,2025-12-01,Gating linear [disagree],0.0,51.23804647572665
+1,2025-12-01,Gating linear [disagree],1e-06,51.23806014347715
+1,2025-12-01,Gating linear [disagree],1e-05,51.23811947107175
+1,2025-12-01,Gating linear [disagree],0.0001,51.23817718421352
+1,2025-12-01,Gating linear [disagree],0.001,51.23887131583075
+1,2025-12-01,Gating linear [disagree],0.01,47.29324676461849
+1,2025-12-01,Gating linear [disagree],0.1,30.53152294158168
+1,2025-12-01,Gating linear [disagree],1.0,25.0328553100759
 1,2025-12-01,Gating linear [recent],0.0,39.77188146021645
 1,2025-12-01,Gating linear [recent],1e-06,39.76700830999764
 1,2025-12-01,Gating linear [recent],1e-05,39.71211515684582
@@ -135,6 +167,22 @@ h,fold,Methode,lam,Loss tune
 1,2026-01-01,Gating linear,0.01,3.668964235940131
 1,2026-01-01,Gating linear,0.1,16.65146764679671
 1,2026-01-01,Gating linear,1.0,25.741500171413442
+1,2026-01-01,Gating linear [disagree+recent],0.0,10.679215828090353
+1,2026-01-01,Gating linear [disagree+recent],1e-06,10.682381715778485
+1,2026-01-01,Gating linear [disagree+recent],1e-05,10.715098604270162
+1,2026-01-01,Gating linear [disagree+recent],0.0001,11.092282179237197
+1,2026-01-01,Gating linear [disagree+recent],0.001,12.346054032092153
+1,2026-01-01,Gating linear [disagree+recent],0.01,22.043466499627854
+1,2026-01-01,Gating linear [disagree+recent],0.1,26.29778443336187
+1,2026-01-01,Gating linear [disagree+recent],1.0,26.511954838342124
+1,2026-01-01,Gating linear [disagree],0.0,15.546646823970113
+1,2026-01-01,Gating linear [disagree],1e-06,15.547483788842632
+1,2026-01-01,Gating linear [disagree],1e-05,15.555012512310997
+1,2026-01-01,Gating linear [disagree],0.0001,15.62990868786392
+1,2026-01-01,Gating linear [disagree],0.001,16.32475019489417
+1,2026-01-01,Gating linear [disagree],0.01,20.60167354462593
+1,2026-01-01,Gating linear [disagree],0.1,25.49740085439613
+1,2026-01-01,Gating linear [disagree],1.0,26.41606548853092
 1,2026-01-01,Gating linear [recent],0.0,46.04861340322861
 1,2026-01-01,Gating linear [recent],1e-06,46.04282714821404
 1,2026-01-01,Gating linear [recent],1e-05,45.988369118732436
@@ -199,6 +247,22 @@ h,fold,Methode,lam,Loss tune
 1,2026-02-01,Gating linear,0.01,0.4406716455774699
 1,2026-02-01,Gating linear,0.1,0.44134371769268005
 1,2026-02-01,Gating linear,1.0,0.44213794949977564
+1,2026-02-01,Gating linear [disagree+recent],0.0,0.4429356598499652
+1,2026-02-01,Gating linear [disagree+recent],1e-06,0.44292407411769136
+1,2026-02-01,Gating linear [disagree+recent],1e-05,0.4428240985464982
+1,2026-02-01,Gating linear [disagree+recent],0.0001,0.44240706392486917
+1,2026-02-01,Gating linear [disagree+recent],0.001,0.441729030290537
+1,2026-02-01,Gating linear [disagree+recent],0.01,0.4416495014372807
+1,2026-02-01,Gating linear [disagree+recent],0.1,0.44157463741299696
+1,2026-02-01,Gating linear [disagree+recent],1.0,0.4424169318263856
+1,2026-02-01,Gating linear [disagree],0.0,0.4417026809791209
+1,2026-02-01,Gating linear [disagree],1e-06,0.44170269134984985
+1,2026-02-01,Gating linear [disagree],1e-05,0.4417029367335817
+1,2026-02-01,Gating linear [disagree],0.0001,0.44170247506189164
+1,2026-02-01,Gating linear [disagree],0.001,0.4416985673765234
+1,2026-02-01,Gating linear [disagree],0.01,0.44166706541522827
+1,2026-02-01,Gating linear [disagree],0.1,0.44157841500377304
+1,2026-02-01,Gating linear [disagree],1.0,0.44240648442489017
 1,2026-02-01,Gating linear [recent],0.0,0.4432689734308368
 1,2026-02-01,Gating linear [recent],1e-06,0.44325690329158035
 1,2026-02-01,Gating linear [recent],1e-05,0.44316305445975546
@@ -263,6 +327,22 @@ h,fold,Methode,lam,Loss tune
 24,2025-11-01,Gating linear,0.01,0.9422446288669437
 24,2025-11-01,Gating linear,0.1,0.9529938983334401
 24,2025-11-01,Gating linear,1.0,0.9626854371697668
+24,2025-11-01,Gating linear [disagree+recent],0.0,0.9577859893414649
+24,2025-11-01,Gating linear [disagree+recent],1e-06,0.9577660609740339
+24,2025-11-01,Gating linear [disagree+recent],1e-05,0.9575663595247217
+24,2025-11-01,Gating linear [disagree+recent],0.0001,0.9565251652863324
+24,2025-11-01,Gating linear [disagree+recent],0.001,0.9543658237456627
+24,2025-11-01,Gating linear [disagree+recent],0.01,0.9546255060962865
+24,2025-11-01,Gating linear [disagree+recent],0.1,0.957990693907159
+24,2025-11-01,Gating linear [disagree+recent],1.0,0.9634222537799234
+24,2025-11-01,Gating linear [disagree],0.0,0.9539814862980622
+24,2025-11-01,Gating linear [disagree],1e-06,0.953981564596854
+24,2025-11-01,Gating linear [disagree],1e-05,0.9539823570374747
+24,2025-11-01,Gating linear [disagree],0.0001,0.9539862909003489
+24,2025-11-01,Gating linear [disagree],0.001,0.9540530670629295
+24,2025-11-01,Gating linear [disagree],0.01,0.9546604062508196
+24,2025-11-01,Gating linear [disagree],0.1,0.9579581488813873
+24,2025-11-01,Gating linear [disagree],1.0,0.9634128566743847
 24,2025-11-01,Gating linear [recent],0.0,0.9704063650960164
 24,2025-11-01,Gating linear [recent],1e-06,0.9704025633706277
 24,2025-11-01,Gating linear [recent],1e-05,0.9703690704734735
@@ -327,6 +407,22 @@ h,fold,Methode,lam,Loss tune
 24,2025-12-01,Gating linear,0.01,0.9480640401456243
 24,2025-12-01,Gating linear,0.1,0.9614940458687564
 24,2025-12-01,Gating linear,1.0,0.9718036254673615
+24,2025-12-01,Gating linear [disagree+recent],0.0,0.965408009874632
+24,2025-12-01,Gating linear [disagree+recent],1e-06,0.9653874168376799
+24,2025-12-01,Gating linear [disagree+recent],1e-05,0.965236143906319
+24,2025-12-01,Gating linear [disagree+recent],0.0001,0.9641037173621152
+24,2025-12-01,Gating linear [disagree+recent],0.001,0.9619994899013236
+24,2025-12-01,Gating linear [disagree+recent],0.01,0.962702500564721
+24,2025-12-01,Gating linear [disagree+recent],0.1,0.9666696418035073
+24,2025-12-01,Gating linear [disagree+recent],1.0,0.9726132528065907
+24,2025-12-01,Gating linear [disagree],0.0,0.9625073280481762
+24,2025-12-01,Gating linear [disagree],1e-06,0.9625074103782923
+24,2025-12-01,Gating linear [disagree],1e-05,0.9625081512405205
+24,2025-12-01,Gating linear [disagree],0.0001,0.9625157775830833
+24,2025-12-01,Gating linear [disagree],0.001,0.9625873027036589
+24,2025-12-01,Gating linear [disagree],0.01,0.9632258991153656
+24,2025-12-01,Gating linear [disagree],0.1,0.9667430952717064
+24,2025-12-01,Gating linear [disagree],1.0,0.972624949842184
 24,2025-12-01,Gating linear [recent],0.0,0.9773729099020338
 24,2025-12-01,Gating linear [recent],1e-06,0.977371221009331
 24,2025-12-01,Gating linear [recent],1e-05,0.977334796115177
@@ -391,6 +487,22 @@ h,fold,Methode,lam,Loss tune
 24,2026-01-01,Gating linear,0.01,0.9179760483606825
 24,2026-01-01,Gating linear,0.1,0.9331473329550106
 24,2026-01-01,Gating linear,1.0,0.9444389232352706
+24,2026-01-01,Gating linear [disagree+recent],0.0,0.9329341700084919
+24,2026-01-01,Gating linear [disagree+recent],1e-06,0.9329290901283619
+24,2026-01-01,Gating linear [disagree+recent],1e-05,0.9328974352247323
+24,2026-01-01,Gating linear [disagree+recent],0.0001,0.9325541159419477
+24,2026-01-01,Gating linear [disagree+recent],0.001,0.9321744592343397
+24,2026-01-01,Gating linear [disagree+recent],0.01,0.9338585606572861
+24,2026-01-01,Gating linear [disagree+recent],0.1,0.9386192119038792
+24,2026-01-01,Gating linear [disagree+recent],1.0,0.9452862683763923
+24,2026-01-01,Gating linear [disagree],0.0,0.9338562598039735
+24,2026-01-01,Gating linear [disagree],1e-06,0.9338563554136392
+24,2026-01-01,Gating linear [disagree],1e-05,0.9338572033148971
+24,2026-01-01,Gating linear [disagree],0.0001,0.9338662691978523
+24,2026-01-01,Gating linear [disagree],0.001,0.9339468657174582
+24,2026-01-01,Gating linear [disagree],0.01,0.9346929672299702
+24,2026-01-01,Gating linear [disagree],0.1,0.9387737105051059
+24,2026-01-01,Gating linear [disagree],1.0,0.9452998248974779
 24,2026-01-01,Gating linear [recent],0.0,0.9486242544321826
 24,2026-01-01,Gating linear [recent],1e-06,0.9486201330004143
 24,2026-01-01,Gating linear [recent],1e-05,0.9486038352546584
@@ -455,6 +567,22 @@ h,fold,Methode,lam,Loss tune
 24,2026-02-01,Gating linear,0.01,0.5874291396349636
 24,2026-02-01,Gating linear,0.1,0.5878328500970746
 24,2026-02-01,Gating linear,1.0,0.5922958807122533
+24,2026-02-01,Gating linear [disagree+recent],0.0,0.6022199105726371
+24,2026-02-01,Gating linear [disagree+recent],1e-06,0.6011170272087598
+24,2026-02-01,Gating linear [disagree+recent],1e-05,0.5973622991105028
+24,2026-02-01,Gating linear [disagree+recent],0.0001,0.5898236492874814
+24,2026-02-01,Gating linear [disagree+recent],0.001,0.5872963375941816
+24,2026-02-01,Gating linear [disagree+recent],0.01,0.5872460046052654
+24,2026-02-01,Gating linear [disagree+recent],0.1,0.5895937129762118
+24,2026-02-01,Gating linear [disagree+recent],1.0,0.5930499154756017
+24,2026-02-01,Gating linear [disagree],0.0,0.5882352796176884
+24,2026-02-01,Gating linear [disagree],1e-06,0.5882353149535006
+24,2026-02-01,Gating linear [disagree],1e-05,0.58823563292198
+24,2026-02-01,Gating linear [disagree],0.0001,0.5882389817649073
+24,2026-02-01,Gating linear [disagree],0.001,0.5882650648510872
+24,2026-02-01,Gating linear [disagree],0.01,0.588498368656025
+24,2026-02-01,Gating linear [disagree],0.1,0.5898684220563681
+24,2026-02-01,Gating linear [disagree],1.0,0.5930726756143703
 24,2026-02-01,Gating linear [recent],0.0,0.596552688791936
 24,2026-02-01,Gating linear [recent],1e-06,0.5965504606865606
 24,2026-02-01,Gating linear [recent],1e-05,0.5965308082961907

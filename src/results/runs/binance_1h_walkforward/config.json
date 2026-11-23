@@ -84,6 +84,13 @@
   "MLP_SEEDS": 3,
   "ABLATIONS": [
     [
+      "disagree",
+      "recent"
+    ],
+    [
+      "disagree"
+    ],
+    [
       "recent"
     ],
     [
@@ -119,6 +126,8 @@
     "Method(name='Statisch', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=()), grid={})",
     "Method(name='Statisch 365T', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=(), window_days=365), grid={})",
     "Method(name='Gating linear', make=<class 'pipeline.combine.Gate'>, grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [disagree+recent]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('disagree', 'recent')), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
+    "Method(name='Gating linear [disagree]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('disagree',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating linear [recent]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('recent',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating linear [market]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('market',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
     "Method(name='Gating linear [volume]', make=functools.partial(<class 'pipeline.combine.Gate'>, groups=('volume',)), grid={'lam': [0.0, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0]})",
