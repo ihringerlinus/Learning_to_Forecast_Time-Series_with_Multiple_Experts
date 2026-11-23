@@ -44,6 +44,12 @@ class FeatureConfig:
     calendar: list = field(default_factory=lambda: ["weekend"])   # + "hour", "us_open", "events" (exo.py)
 
     @classmethod
+    def forecast_only(cls, pool, sids):
+        """Nur Features, die direkt aus den Expertenprognosen ableitbar sind (keine Marktdaten).
+        Beantwortet die Frage: kann das Gate kombinieren, ohne den Markt zu 'sehen'?"""
+        return cls(pool, sids, groups=["disagree", "recent"])
+
+    @classmethod
     def legacy(cls, pool, sids):
         # exakt die 14 Features aus archiv/01_kombination.ipynb
         return cls(pool, sids, groups=["market", "disagree", "recent"], halflives=[10],
