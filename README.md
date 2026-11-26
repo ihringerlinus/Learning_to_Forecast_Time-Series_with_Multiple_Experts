@@ -1,8 +1,10 @@
 # Learning to Forecast Time Series with Multiple Experts
 
-Bachelorprojekt (HSG). Mehrere Prognosemodelle ("Experten") sagen die tägliche Volatilität von Kryptowährungen voraus. Ein kleines neuronales Netz (das **Gate**) lernt, wie stark es jedem Experten je nach Marktsituation vertrauen soll, und kombiniert ihre Prognosen.
+Bachelorprojekt (HSG). Mehrere Prognosemodelle ("Experten") sagen eine Zeitreihe voraus: die stündliche Volatilität von Kryptowährungen, Gold und EUR/USD, die stündliche Stromlast europäischer Länder und (in Arbeit) die Windstromerzeugung. Ein kleines neuronales Netz (das **Gate**) lernt, wie stark es jedem Experten je nach Situation vertrauen soll, und kombiniert ihre Prognosen.
 
-**Forschungsfrage:** Ist eine gelernte, situationsabhängige Kombination von Experten (Foundation Models und klassische Ökonometrie) besser als das beste Einzelmodell oder feste Gewichte?
+**Forschungsfrage:** Ist eine gelernte, situationsabhängige Kombination von Experten (Foundation Models und klassische Modelle) besser als das beste Einzelmodell oder feste Gewichte? Und wovon hängt das ab?
+
+**Kernergebnis (Stand Nov. 2026, Abschnitt 16):** Ob Kombinieren etwas bringt, hängt davon ab, wie ähnlich die Fehler der Foundation Models sind. Bei der Volatilität korrelieren ihre Fehler zu 0.93–0.98: Keine gelernte Kombination schlägt das beste Einzelmodell oder gleiche Gewichte signifikant (Forecast Combination Puzzle). Bei der Stromlast korrelieren sie nur zu 0.55–0.85: Gelernte Gewichte sind 2–12 % besser als das beste Einzelmodell, signifikant. Über alle Serien ist die Rangkorrelation zwischen Fehlerkorrelation und Kombinationsgewinn −0.76.
 
 ---
 
@@ -18,36 +20,47 @@ Bachelorprojekt (HSG). Mehrere Prognosemodelle ("Experten") sagen die tägliche 
 8. [Kombination: das Gate](#8-kombination-das-gate)
 9. [Training des Gates](#9-training-des-gates)
 10. [Evaluation und Metriken](#10-evaluation-und-metriken)
-11. [Resource Check](#11-resource-check-00_resource_checkipynb)
-12. [TimesFM-2.5 und Chronos-Check](#12-timesfm-25-und-chronos-check-archiv02_timesfmipynb)
-13. [Live-Prognose-App](#13-live-prognose-app-app)
-14. [Konfigurationsparameter](#14-konfigurationsparameter)
-15. [Stand, Einschränkungen und nächste Schritte](#15-stand-einschränkungen-und-nächste-schritte)
-16. [Glossar](#16-glossar)
+11. [Mehrere Domänen: Notebooks 06–09](#11-mehrere-domänen-notebooks-0609)
+12. [Resource Check](#12-resource-check-00_resource_checkipynb)
+13. [TimesFM-2.5 und Chronos-Check (Tagesdaten, Archiv)](#13-timesfm-25-und-chronos-check-tagesdaten-archiv)
+14. [Live-Prognose-App](#14-live-prognose-app-app)
+15. [Konfigurationsparameter](#15-konfigurationsparameter)
+16. [Stand, Einschränkungen und nächste Schritte](#16-stand-einschränkungen-und-nächste-schritte)
+17. [Glossar](#17-glossar)
 
 ---
 
 ## 1. Überblick
 
-Die Pipeline besteht aus fünf Notebooks, eines pro Data-Science-Schritt. Sie tauschen ihre Ergebnisse über Dateien aus:
+Die **Hauptpipeline** besteht aus fünf Notebooks, eines pro Data-Science-Schritt. Sie tauschen ihre Ergebnisse über Dateien aus:
 
 ```
-01_daten        Binance oder synthetische Daten ──► tägliche RV pro Serie        data/<DATASET>.json
-02_experten     RW, EWMA, HAR, GARCH, Chronos-2, TimesFM-2.5, t0, Timestral       <SID>__<MODELL>.parquet
+01_daten        Binance oder synthetische Daten ──► stündliche RV pro Serie      data/<DATASET>.json
+02_experten     RW, EWMA, HAR, GARCH, Chronos-2, TimesFM-2.5, t0, Timestral       results/forecasts/<DATASET>/<SID>__<MODELL>.parquet
                                                  (Mittelwert + 21 Quantile pro Ursprung und Horizont)
-03_features     Prognosen + Tagesdaten ──► Features, ein Panel pro Horizont        results/panels/<DATASET>/
+03_features     Prognosen + Stundendaten ──► Features, ein Panel pro Horizont     results/panels/<DATASET>/
 04_training     Split (Walk-Forward) ──► λ wählen ──► Baselines und Gates fitten   results/runs/<RUN>/
 05_evaluation   Out-of-Sample-Vergleich: Experten vs. Baselines vs. Gate, DM-Tests, Oracle, Gewichte
 ```
 
-**Datenquelle austauschbar:** `01_daten` schreibt echte (`binance`) oder synthetische Daten (`syn_<Szenario>_s<Seed>`) in dasselbe Format. Die Notebooks 02–05 brauchen nur `DATASET = "..."` in der ersten Zelle.
+Dazu kommen vier **eigenständige Notebooks** für den Domänenvergleich (Abschnitt 11). Sie laden ihre Daten selbst, rechnen die Experten (auf Kaggle/Colab mit GPU) und trainieren die Gates in einem Notebook:
 
-**Aktueller Pool (echte Daten):** Chronos-2 (voll), TimesFM-2.5, HAR, GARCH. Der Random Walk dient als Baseline.
+```
+06_new_models_and_TS   Volatilität: PAXG (Gold), EUR/USDT, XRP, BNB; neu TiRex und FlowState
+07_electricity         Stromlast DE/FR/IT/ES (Energy-Charts); klassisch SNaive und SeasReg
+08_correlation_vs_win  Analyse über alle Datensätze: Fehlerkorrelation vs. Kombinationsgewinn
+09_wind                Windstrom onshore DE/FR/ES/PL (noch nicht gerechnet)
+```
 
-- **Stufe 1 (02)** ist teuer (Modelle laufen über Tausende Tage) und wird einmal gerechnet. Die Ergebnisse werden gecacht.
+**Datenquelle austauschbar:** `01_daten` schreibt echte (`binance_1h`) oder synthetische Daten (`syn_<Szenario>_s<Seed>`) in dasselbe Format. Die Notebooks 02–05 brauchen nur `DATASET = "..."` in der ersten Zelle. Der frühere Tagesdatensatz `binance` (5-Min-Kerzen, h = 1/5 Tage) liegt noch an den alten Orten (`data/<COIN>_daily.parquet`, `results/<COIN>__<MODELL>.parquet`, `results/runs/binance_walkforward/`).
+
+**Aktueller Pool in 03–05 (`binance_1h`):** Chronos-2 (voll) und TimesFM-2.5. Der Random Walk dient als Baseline. HAR und GARCH werden gerechnet, sind aber nicht im Pool.
+
+- **Stufe 1 (02)** ist teuer (Modelle laufen über Tausende Ursprünge) und wird einmal gerechnet. Die Ergebnisse werden gecacht.
 - **Stufe 2 (03–05)** ist billig und arbeitet nur auf den gespeicherten Prognosen.
+- **Quantile kappen:** Chronos-2 und TiRex liefern auf Volatilität vereinzelt absurde Quantile (q0.99 bis e⁴² × Median). `pipeline.common.cap_quantiles(fc, k=8)` begrenzt die Quantile beim Laden auf Median · e^±8 und rechnet in den betroffenen Zeilen den Mittelwert neu. Alle Notebooks, die Prognosen laden (03, 05, 06, 08, 09), wenden es an. Details in Abschnitt 6.
 
-**Gemeinsamer Code:** Experten, Features und Kombination (Panel, Loss, Baselines, Gate, Folds) stehen in `src/pipeline/`. Die Notebooks 02–04 und die App importieren denselben Code. Was in den Notebooks gilt, gilt deshalb exakt auch in der App (Abschnitt 13).
+**Gemeinsamer Code:** Experten, Features und Kombination (Panel, Loss, Baselines, Gate, Folds) stehen in `src/pipeline/`. Die Notebooks 02–04 und die App importieren denselben Code. Was in den Notebooks gilt, gilt deshalb exakt auch in der App (Abschnitt 14). Die Notebooks 06–09 nutzen dieselben Module, ersetzen aber Teile davon im Notebook (eigene Experten-Klassen, eigener Loss für Strom und Wind).
 
 Die früheren Notebooks liegen unverändert in `src/archiv/` (siehe Abschnitt 2). Mit `LEGACY = True` in 03 und 04 sowie `SPLIT = "fixed"` reproduzieren die neuen Notebooks deren Ergebnisse exakt.
 
@@ -58,55 +71,61 @@ Die früheren Notebooks liegen unverändert in `src/archiv/` (siehe Abschnitt 2)
 ```
 .
 ├── README.md
+├── CLAUDE.md                     Kontext für Claude Code (Stand, Entscheidungen, Stolpersteine)
 ├── requirements.txt
 ├── prognose.png                  Plot aus einem frühen Prototyp (Chronos-2 + Toto, S&P 500)
 ├── app/
-│   ├── app.py                    Live-Prognose-App (Streamlit), siehe Abschnitt 13
+│   ├── app.py                    Live-Prognose-App (Streamlit), siehe Abschnitt 14
 │   └── .streamlit/config.toml    Farben und Darstellung der App
 ├── reports/
-│   └── zwischenstand.html        Zwischenbericht mit Grafiken und Ergebnissen
+│   └── zwischenstand.html        Zwischenbericht mit Grafiken und Ergebnissen (Stand Tagesdaten)
 └── src/
     ├── 00_resource_check.ipynb   laufen Chronos-2, TimesFM und Moirai lokal? RAM, Latenz
-    ├── 01_daten.ipynb            Daten laden (Binance oder synthetisch), RV, Format prüfen
+    ├── 01_daten.ipynb            Daten laden (Binance oder synthetisch), RV, exogene Features, Format prüfen
     ├── 02_experten.ipynb         Stufe 1: Rolling-Origin-Prognosen aller Experten (gecacht)
     ├── 03_features.ipynb         Features für das Gate, ein Panel pro Horizont
-    ├── 04_training.ipynb         Split, Hyperparameterwahl, Baselines und Gates fitten
+    ├── 04_training.ipynb         Split, Hyperparameterwahl, Baselines, Gates und Ablationen fitten
     ├── 05_evaluation.ipynb       Vergleich mit Experten und Baselines, DM-Tests, Oracle
+    ├── 06_new_models_and_TS.ipynb  Volatilität neuer Serien, TiRex und FlowState (Abschnitt 11)
+    ├── 07_electricity.ipynb      Stromlast als zweite Domäne (Abschnitt 11)
+    ├── 08_correlation_vs_win.ipynb  Fehlerkorrelation vs. Kombinationsgewinn über alle Datensätze
+    ├── 09_wind.ipynb             Windstrom als dritte Domäne (vorbereitet, noch nicht gerechnet)
     ├── pipeline/                 gemeinsamer Code von Notebooks und App
-    │   ├── common.py             Quantile, Horizonte, Schätzfenster (gilt für Notebooks und App)
+    │   ├── common.py             Quantile, Horizonte, Schätzfenster, cap_quantiles (gilt für Notebooks und App)
     │   ├── experts.py            alle Experten (02)
+    │   ├── exo.py                exogene Features (Volumen, DVOL, VIX/S&P) und Kalender (Stunde, US-Börse, FOMC/CPI)
     │   ├── features.py           Features und Panels (03)
     │   ├── combine.py            Panel, Loss, Baselines, Gate, Walk-Forward-Folds (04)
     │   └── live.py               Live-Betrieb der App: Prognosen nachführen, Monatsmodelle
     ├── archiv/                   frühere Notebooks (Zwischenbericht), durch 01–05 ersetzt
     │   ├── volatilitaet_chronos2_har_garch.ipynb
-    │   ├── 02_timesfm.ipynb      inkl. Chronos-Check (Abschnitt 12)
+    │   ├── 02_timesfm.ipynb      inkl. Chronos-Check (Abschnitt 13)
     │   ├── 01_kombination.ipynb
     │   └── 03_t0_timestral.ipynb erste Prüfung von t0 und Timestral (heute in 02_experten)
     ├── data/                     (nicht in Git, siehe .gitignore)
-    │   ├── raw/<COIN>/<COIN>-5m-YYYY-MM.zip   Binance-Monatsdateien
-    │   ├── <COIN>_daily.parquet  tägliche RV, Rendite, Anzahl Bars (binance)
-    │   ├── <DATASET>/            tägliche Daten anderer Datensätze (z.B. synthetisch)
+    │   ├── raw/<COIN>/<COIN>-1m-YYYY-MM.zip   Binance-Monatsdateien (1-Min-Kerzen, auch von 06 genutzt)
+    │   ├── raw/energy_charts/     API-Antworten von Energy-Charts (07 und 09 teilen den Cache)
+    │   ├── <DATASET>/<SID>_daily.parquet   Stundendaten pro Serie (Name "daily" historisch), Spalte rv = Zielgrösse
+    │   │                          binance_1h, binance_1h_neu (06), strom_1h (07), wind_1h (09), syn_*
     │   ├── <DATASET>.json        Beschreibung des Datensatzes (Serien, Pfade, Testsperre)
-    │   └── live/                 alles, was die App schreibt (Abschnitt 13)
-    │       ├── <COIN>_daily.parquet, <COIN>_price.parquet   Tagesdaten und Kurse bis gestern
-    │       ├── forecasts/<COIN>__<MODELL>.parquet          Prognosen der Experten ab Sept. 2026
-    │       ├── models/<JJJJ-MM>_h<h>.pkl                   Monatsmodelle (Statisch und Gate)
-    │       └── forecast_log.parquet, price_log.parquet     Logbücher
+    │   ├── <COIN>_daily.parquet  alter Tagesdatensatz binance (5-Min-Kerzen)
+    │   └── live/binance_1h/      alles, was die App schreibt (Abschnitt 14)
     └── results/
-        ├── <COIN>__<MODELL>.parquet   Prognosen der Experten auf echten Daten
-        │                              (RW, EWMA, HAR, GARCH, Chronos-2, Chronos-2-full, TimesFM-2.5,
-        │                               optional t0-gamma, Timestral-209M)
-        ├── forecasts/<DATASET>/       Prognosen der Experten auf anderen Datensätzen
-        ├── panels/<DATASET>/          Panels aus 03 (h1.parquet, h5.parquet, panel.json)
+        ├── forecasts/<DATASET>/<SID>__<MODELL>.parquet   Prognosen der Experten (nicht in Git)
+        ├── forecasts/06_res.parquet, 06_wts.parquet      Kombinationsergebnisse und Gewichte aus 06
+        ├── forecasts/07_res.parquet, 07_wts.parquet      dasselbe aus 07 (09 schreibt 09_res/09_wts)
+        ├── panels/<DATASET>/          Panels aus 03 (h1.parquet, h24.parquet, panel.json; nicht in Git)
         ├── runs/<RUN>/                Ergebnisse aus 04 (Prognosen, Gewichte, λ, Koeffizienten, Konfiguration)
-        ├── runtimes.csv               Laufzeiten der Experten
-        ├── runtimes_timesfm.csv       Laufzeiten aus archiv/02_timesfm.ipynb
+        │                              binance_1h_walkforward (aktuell), binance_walkforward (Tagesdaten),
+        │                              syn_regime_signal_s0_walkforward
+        ├── korrelation_vs_gewinn.png, oos_vs_obergrenze.png   Grafiken aus 08
+        ├── <COIN>__<MODELL>.parquet   Prognosen des alten Tagesdatensatzes binance
+        ├── runtimes.csv, runtimes_timesfm.csv   Laufzeiten der Experten (Tagesdaten)
         ├── chronos_check.json         welche Chronos-Variante steckt in Chronos-2.parquet?
         └── resource_check_*.csv/json  Ergebnisse des Resource Checks
 ```
 
-Die echten Daten bleiben an den bisherigen Orten (`data/<COIN>_daily.parquet`, `results/<COIN>__<MODELL>.parquet`), weil die App sie liest. Die Notebooks im Archiv erwarten ihre Pfade relativ zu `src/`. Zum erneuten Ausführen zurück nach `src/` verschieben.
+`src/results/forecasts/` und `src/results/panels/` sind in `.gitignore`: Die Expertenprognosen der GPU-Läufe (06, 07, 09) kommen als ZIP von Kaggle/Colab und werden lokal nach `src/` entpackt. Die Notebooks im Archiv erwarten ihre Pfade relativ zu `src/`. Zum erneuten Ausführen zurück nach `src/` verschieben.
 
 ---
 
@@ -130,9 +149,13 @@ pip install -r requirements.txt
 > # für t0 und Timestral (02_experten.ipynb und App, optional):
 > pip install "tfc-t0[torch]>=0.6.0"
 > pip install git+https://github.com/mistralai/timestral.git
+> # für TiRex und FlowState (06, 07, 09):
+> pip install tirex-ts granite-tsfm
 > # nur für den Resource Check (Moirai):
 > pip install uni2ts gluonts
 > ```
+
+**Jupyter-Kernel:** Der Kernel muss die `.venv` verwenden. Startet er die System-Python (Fehler `pyarrow` fehlt), Jupyter aus der aktivierten `.venv` starten oder beim Ausführen per Kommandozeile `.venv\Scripts` vorne in den `PATH` setzen.
 
 ### Reihenfolge
 
@@ -141,12 +164,14 @@ Die Notebooks verwenden relative Pfade (`data/`, `results/`) und müssen deshalb
 | Schritt | Datei | was passiert | Dauer |
 |---|---|---|---|
 | (optional) | `00_resource_check.ipynb` | prüft, ob die Foundation Models lokal laufen | Minuten |
-| 1 | `01_daten.ipynb` | Binance-Daten herunterladen und RV berechnen, oder synthetische Reihen simulieren | Sekunden (mit Cache) |
-| 2 | `02_experten.ipynb` | Prognosen aller Experten in `MODELS`, vorhandene werden nur geladen | Sekunden bis 45 Min. (Foundation Models auf CPU) |
+| 1 | `01_daten.ipynb` | Binance-Daten herunterladen, stündliche RV und exogene Features berechnen, oder synthetische Reihen simulieren | Sekunden (mit Cache) |
+| 2 | `02_experten.ipynb` | Prognosen aller Experten in `MODELS`, vorhandene werden nur geladen | Minuten bis Stunden (Foundation Models, besser auf GPU) |
 | 3 | `03_features.ipynb` | Features und Panels bauen | Sekunden |
-| 4 | `04_training.ipynb` | Walk-Forward: pro Monat λ wählen, Baselines und Gates fitten, out-of-sample prognostizieren | Minuten (das MLP ist der langsamste Teil) |
+| 4 | `04_training.ipynb` | Walk-Forward: pro Monat λ wählen, Baselines, Gates und Ablationen fitten, out-of-sample prognostizieren | ca. 30 Min. (CPU) |
 | 5 | `05_evaluation.ipynb` | Tabellen, Diebold-Mariano gegen die Baselines, Oracle, Gewichte, Koeffizienten | Sekunden |
-| (optional) | `app/app.py` | Live-Prognose mit den neuesten Daten (Abschnitt 13) | ca. 1 Min. pro Klick |
+| 6–9 | `06`, `07`, `09` | je eigenständig: Daten, Experten, Gates (Abschnitt 11). Expertenprognosen auf Kaggle/Colab mit GPU rechnen (ca. 4–5 h pro Datensatz), lokal läuft nur der Cache | lokal ca. 25 Min. (Gates) |
+| 8 | `08_correlation_vs_win.ipynb` | Analyse über alle Datensätze, braucht die Ergebnisse von 06 und 07 | ca. 1 Min. |
+| (optional) | `app/app.py` | Live-Prognose mit den neuesten Daten (Abschnitt 14) | ca. 1 Min. pro Klick |
 
 **Datensatz wechseln:** in `01_daten` `SOURCE = "synthetic"` (und `SCENARIO`) setzen, danach in 02–05 `DATASET` auf den ausgegebenen Namen (z.B. `"syn_regime_signal_s0"`). In 05 zusätzlich `RUN` anpassen, falls in 04 ein anderer Name oder Split gewählt wurde.
 
@@ -160,35 +185,39 @@ Der Ordner `src/data/` ist nicht in Git. Auf einem neuen Rechner lädt `01_daten
 
 ### Daten
 
-| | |
-|---|---|
-| Quelle | Binance Spot, 5-Minuten-Kerzen (`data.binance.vision`) |
-| Coins | BTCUSDT, ETHUSDT (ab 01/2020), SOLUSDT (ab 08/2020) |
-| Zeitraum | bis 08/2026 (letzter vollständiger Monat) |
-| Bars pro Tag | 288 (Krypto handelt 24/7, keine Overnight-Lücke) |
-| Qualitätsfilter | Tage mit weniger als 270 Bars werden verworfen |
+| | aktuell: `binance_1h` | früher: `binance` |
+|---|---|---|
+| Quelle | Binance Spot, 1-Minuten-Kerzen (`data.binance.vision`) | Binance Spot, 5-Minuten-Kerzen |
+| Coins | BTCUSDT, ETHUSDT, SOLUSDT | BTCUSDT, ETHUSDT, SOLUSDT |
+| Zeitraum | 01/2023 – 08/2026 | 01/2020 (SOL 08/2020) – 08/2026 |
+| Zielgrösse | RV pro Stunde (60 Bars) | RV pro Tag (288 Bars) |
+| Qualitätsfilter | Stunden mit weniger als 54 Bars werden verworfen | Tage mit weniger als 270 Bars |
+| Exogene Spalten | `exo_vol_*` (Volumen, Trades, Taker-Anteil), `exo_dvol_*` (Deribit DVOL, BTC/ETH), `exo_mkt_*` (VIX, S&P-500-Futures), siehe `pipeline/exo.py` | – |
+
+Krypto handelt 24/7, es gibt keine Overnight-Lücke. Weitere Datensätze (Abschnitt 11): `binance_1h_neu` (PAXG, EUR, XRP, BNB, gleiche Berechnung), `strom_1h` (Stromlast) und `wind_1h` (Windstrom). Dort steht in der Spalte `rv` die jeweilige Zielgrösse (z.B. Last in MW), damit der Pipeline-Code unverändert bleibt.
 
 ### Was ist die RV?
 
-Die **realisierte Varianz** fasst die Schwankung eines Tages in **einer Zahl** zusammen. Für jeden UTC-Tag *d*:
+Die **realisierte Varianz** fasst die Schwankung eines Zeitintervalls in **einer Zahl** zusammen. Für jede Stunde (früher: jeden UTC-Tag) *d*:
 
 $$RV_d = \sum_{i} r_{d,i}^2, \qquad r_{d,i} = \ln P_{d,i} - \ln P_{d,i-1}$$
 
-Dabei ist $P_{d,i}$ der Schlusskurs der *i*-ten 5-Minuten-Kerze. Zusätzlich wird die **Tagesrendite** $ret_d = \sum_i r_{d,i}$ gespeichert.
+Dabei ist $P_{d,i}$ der Schlusskurs der *i*-ten Kerze im Intervall. Zusätzlich wird die **Rendite** $ret_d = \sum_i r_{d,i}$ gespeichert.
 
-Code (`daily_rv` in `01_daten.ipynb`):
+Code (`01_daten.ipynb`, ebenso `hourly_rv` in 06):
 
 ```python
 r = np.log(close).diff().dropna()
-rv  = (r**2).groupby(day).sum()
-ret = r.groupby(day).sum()
+hour = r.index.floor("1h")
+rv  = (r**2).groupby(hour).sum()
+ret = r.groupby(hour).sum()
 ```
 
-**Warum RV und nicht einfach die Tagesrendite?** Ein Tag, der +1 % schliesst, kann ruhig gewesen sein oder zwischendurch −7 % und +7 % gesehen haben. Die Tagesrendite ist in beiden Fällen gleich, die RV nicht. Die RV misst also, wie stark sich der Preis **während** des Tages bewegt hat. Die "wahre" Volatilität ist nicht beobachtbar, und die RV ist eine viel genauere Schätzung davon als die quadrierte Tagesrendite.
+**Warum RV und nicht einfach die Rendite?** Eine Stunde, die +1 % schliesst, kann ruhig gewesen sein oder zwischendurch −5 % und +5 % gesehen haben. Die Rendite ist in beiden Fällen gleich, die RV nicht. Die RV misst also, wie stark sich der Preis **während** des Intervalls bewegt hat. Die "wahre" Volatilität ist nicht beobachtbar, und die RV ist eine viel genauere Schätzung davon als die quadrierte Rendite.
 
-**Warum 5 Minuten?** Bei sehr kurzen Intervallen springt der Preis zwischen Geld- und Briefkurs (Mikrostruktur-Rauschen), und die RV wird künstlich zu gross. 5 Minuten ist der Standardkompromiss in der Literatur.
+**Warum 1 bzw. 5 Minuten?** Bei sehr kurzen Intervallen springt der Preis zwischen Geld- und Briefkurs (Mikrostruktur-Rauschen), und die RV wird künstlich zu gross. Für Tages-RV ist 5 Minuten der Standardkompromiss. Für Stunden-RV braucht es feinere Kerzen, sonst bestünde jede Stunde nur aus 12 Renditen.
 
-### Grössenordnung (BTC, Beispiel)
+### Grössenordnung (BTC, Tages-RV, Beispiel)
 
 | Grösse | typischer Wert |
 |---|---|
@@ -197,9 +226,9 @@ ret = r.groupby(day).sum()
 | **RV (Tagesvarianz)** | ca. 0.000625 |
 | Annualisierte Volatilität $\sqrt{365 \cdot RV}$ | ca. 48 % |
 
-Die RV ist stark **rechtsschief**: Die meisten Tage sind ruhig, wenige haben extreme Spitzen. Deshalb rechnen die Modelle meist mit **log-RV**.
+Die RV ist stark **rechtsschief**: Die meisten Stunden und Tage sind ruhig, wenige haben extreme Spitzen. Deshalb rechnen die Modelle meist mit **log-RV**. Stunden-RV hat zusätzlich einen ausgeprägten **Tagesgang** (US-Börsenöffnung, Wochenende).
 
-`data/<COIN>_daily.parquet` enthält die Spalten `rv`, `ret`, `n_bars` mit dem Datum als Index.
+`data/<DATASET>/<SID>_daily.parquet` enthält die Spalten `rv`, `ret`, `n_bars` (und `exo_*`) mit dem Zeitstempel als Index. Der Dateiname "daily" ist historisch, die Zeilen sind Stunden.
 
 ### Gemeinsames Datenformat
 
@@ -234,9 +263,10 @@ Beide Regimes haben dasselbe Niveau ($\mu = -7.4$, Tagesvola ≈ 2.5 % wie BTC),
 
 ## 5. Rolling-Origin-Prognosen
 
-- Ein **Ursprung** *t* ist der letzte bekannte Tag. Jeder Experte sieht nur Daten bis einschliesslich *t*.
-- Für jeden Ursprung und jeden **Horizont** *h* ∈ {1, 5} ist das Ziel $RV_{t+h}$, also die RV in 1 bzw. 5 Tagen.
-- Das wird für **jeden Tag** wiederholt (rollierend), ab Tag 500 der Reihe (`MIN_HISTORY`).
+- Ein **Ursprung** *t* ist die letzte bekannte Stunde. Jeder Experte sieht nur Daten bis einschliesslich *t*.
+- Für jeden Ursprung und jeden **Horizont** *h* ∈ {1, 24} ist das Ziel $RV_{t+h}$, also die RV in 1 bzw. 24 Stunden (Tagesdaten früher: *h* ∈ {1, 5} Tage).
+- Das wird für **jede Stunde** wiederholt (rollierend), ab `ORIGIN_START` = 01.01.2025 und frühestens nach 60 Tagen Historie (`MIN_HISTORY` = 1440 Stunden).
+- Alle Werte in `pipeline/common.py` sind in Zeitschritten der Daten. Fenster, die in Tagen gemeint sind (HAR, EWMA, Features), rechnen `experts.py` und `features.py` mit `steps_per_day()` um (Stundendaten: × 24).
 
 ### Was eine Prognose ist
 
@@ -261,13 +291,13 @@ Jeder Experte liefert pro Ursprung und Horizont keine einzelne Zahl, sondern ein
 
 ### Format der Ergebnisdateien
 
-`results/<COIN>__<MODELL>.parquet`, eine Zeile pro Ursprung und Horizont:
+`results/forecasts/<DATASET>/<SID>__<MODELL>.parquet`, eine Zeile pro Ursprung und Horizont:
 
 | Spalte | Inhalt |
 |---|---|
 | `sid` | Serie (z.B. `BTCUSDT`) |
 | `model` | Experte |
-| `h` | Horizont in Tagen |
+| `h` | Horizont in Zeitschritten (Stunden) |
 | `origin` | Datum des Ursprungs *t* |
 | `target_date` | Datum des Ziels *t + h* |
 | `y` | tatsächliche RV am Zieldatum |
@@ -282,7 +312,7 @@ Alle Experten haben dieselbe Schnittstelle: eine Klasse mit `name` und `forecast
 
 ### Gemeinsames Prinzip der ökonometrischen Modelle
 
-RW, EWMA, HAR und GARCH prognostizieren einen **Punktwert in Logs**. Die Verteilung entsteht aus den **empirischen Residuen** im Schätzfenster (letzte 1000 Tage):
+RW, EWMA, HAR und GARCH prognostizieren einen **Punktwert in Logs**. Die Verteilung entsteht aus den **empirischen Residuen** im Schätzfenster (`EST_WINDOW`: letzte 90 Tage = 2160 Stunden; Tagesdaten früher 1000 Tage):
 
 - Quantile: $\hat q_\tau = \exp(\text{Log-Prognose} + \text{Quantil}_\tau(\text{Residuen}))$
 - Mittelwert: Smearing-Schätzer (Duan 1983), $\hat\mu = \exp(\text{Log-Prognose}) \cdot \overline{\exp(\text{Residuen})}$
@@ -293,10 +323,20 @@ RW, EWMA, HAR und GARCH prognostizieren einen **Punktwert in Logs**. Die Verteil
 |---|---|---|---|
 | **RW** (Random Walk) | log-RV | $RV_{t+h} = RV_t$, "morgen wie heute" | Streuung aus historischen h-Tages-Änderungen der log-RV. Auf echten Daten **nur Baseline**, auf synthetischen Daten auch im Pool. |
 | **EWMA** | log-RV | exponentiell geglättete log-RV (Halbwertszeit 5 Tage) | günstiger, kontaminationsfreier Zusatzexperte. Streuung aus den h-Schritt-Fehlern im Schätzfenster. Bisher in keinem Standard-Pool. |
-| **HAR** (log-HAR, Corsi 2009) | log-RV | $\ln RV_{t+h} = \beta_0 + \beta_1 \ln RV_t + \beta_2 \ln RV^{(5)}_t + \beta_3 \ln RV^{(22)}_t$ | Tag, Woche, Monat. OLS im rollierenden 1000-Tage-Fenster, direkte Prognose pro Horizont. Nur Zeilen, deren Ziel bis *t* bekannt ist. |
-| **GARCH(1,1)-t** | Tagesrenditen | Varianz reagiert auf vergangene Schocks und vergangene Varianz, t-verteilte Innovationen | GARCH modelliert die Varianz der Tagesrendite, nicht die RV. Niveau und Streuung werden deshalb über die Residuen $\ln(RV_u / \sigma_u^2)$ auf die RV kalibriert. Neuschätzung alle 5 Ursprünge. |
-| **Chronos-2** (Amazon) | log-RV | vortrainiertes Foundation Model, **zero-shot** (kein Training auf diesen Daten) | Kontext: letzte 1024 Tage. Gibt die 21 Quantile direkt aus (in Logs, dann `exp`). Mittelwert durch Integration der Quantile. `cross_learning=False`, damit sich Kontexte im Batch nicht gegenseitig Information geben. |
-| **TimesFM-2.5** (Google, 200M) | log-RV | vortrainiertes Foundation Model, **zero-shot** | Gleiches Setup wie Chronos (Kontext 1024). Liefert nur die Quantile 0.1 … 0.9, die übrigen 12 werden ergänzt (siehe Abschnitt 12). Mittelwert durch Integration der Quantile. |
+| **HAR** (log-HAR, Corsi 2009) | log-RV | $\ln RV_{t+h} = \beta_0 + \beta_1 \ln RV_t + \beta_2 \ln RV^{(a)}_t + \beta_3 \ln RV^{(b)}_t$ | Stundendaten: letzte Stunde, Tag (a = 24), Woche (b = 168). Tagesdaten: Tag, Woche (5), Monat (22). OLS im rollierenden Fenster, direkte Prognose pro Horizont. Nur Zeilen, deren Ziel bis *t* bekannt ist. |
+| **GARCH(1,1)-t** | Renditen | Varianz reagiert auf vergangene Schocks und vergangene Varianz, t-verteilte Innovationen | GARCH modelliert die Varianz der Rendite, nicht die RV. Niveau und Streuung werden deshalb über die Residuen $\ln(RV_u / \sigma_u^2)$ auf die RV kalibriert. Neuschätzung alle 24 Ursprünge (täglich). |
+| **Chronos-2** (Amazon, ca. Okt. 2025) | log-RV | vortrainiertes Foundation Model (Transformer), **zero-shot** (kein Training auf diesen Daten) | Kontext: letzte 1024 Schritte (≈ 43 Tage). Gibt die 21 Quantile direkt aus (in Logs, dann `exp`). Mittelwert durch Integration der Quantile. `cross_learning=False`, damit sich Kontexte im Batch nicht gegenseitig Information geben. |
+| **TimesFM-2.5** (Google, 200M, ca. Sept. 2025) | log-RV | Foundation Model (Transformer), **zero-shot** | Gleiches Setup wie Chronos (Kontext 1024). Liefert nur die Quantile 0.1 … 0.9, die übrigen 12 werden ergänzt (`expand_quantiles`, siehe Abschnitt 13). Mittelwert durch Integration der Quantile. |
+| **TiRex** (NX-AI, 35M, Mai 2025) | log-RV | Foundation Model, **xLSTM (rekurrent)**, zero-shot | nur in 06, 07, 09. Quantile 0.1 … 0.9, ergänzt wie TimesFM. Paket `tirex-ts`. |
+| **FlowState** (IBM Granite, 9M, 2025) | log-RV | Foundation Model, **State-Space-Modell**, zero-shot | nur in 06, 07, 09. `scale_factor = 1.0` für Stundendaten mit Tageszyklus. Paket `granite-tsfm`. |
+| **SNaive** | log-Wert | gleiche Stunde vor einer Woche | klassisches Lastmodell, nur in 07 und 09. Streuung aus den Wochen-Differenzen im Schätzfenster. |
+| **SeasReg** | log-Wert | Regression auf letzten Wert, gleiche Stunde gestern und vor einer Woche, 24-h-Mittel | die "HAR-Version" für Last, nur in 07 und 09. Pro Horizont rollierend geschätzt. |
+
+### Ausreisser in den Quantilen: `cap_quantiles`
+
+Chronos-2 liefert auf allen sieben Volatilitätsreihen vereinzelt absurde obere Quantile (31–157 Prognosen pro Serie, q0.99 bis e⁴² × Median, Mittelwert bis e³⁹ × Median), TiRex in kleinerem Umfang (≤ 22 Zeilen, bis e¹³). Auf Strom gibt es keine. Auf den QLIKE des Mittelwerts wirkt sich das kaum aus, aber der **Pinball-Term im Gate-Loss** explodiert (mittlerer Pinball von Chronos im Training 1.5·10¹² statt ca. 0.7). Jedes Gewicht auf Chronos wurde dadurch bestraft, und "Statisch" gab Chronos 0 %, obwohl es das beste Einzelmodell ist.
+
+`pipeline.common.cap_quantiles(fc, k=8.0)` begrenzt deshalb beim Laden jedes Quantil auf [Median · e⁻⁸, Median · e⁸] und rechnet den Mittelwert in den gekappten Zeilen neu aus den Quantilen. k = 8 (≈ 3000-faches des Medians) trifft nur die Ausreisser von Chronos und TiRex. Breite, aber echte Verteilungen (RW, HAR, GARCH, TimesFM: höchstens ca. e⁷) bleiben unverändert; bei k = 5 wären es über 1000 RW-Zeilen. Die gespeicherten Parquet-Dateien bleiben unverändert.
 
 **Zwei Chronos-Varianten in `results/`:**
 
@@ -307,7 +347,9 @@ RW, EWMA, HAR und GARCH prognostizieren einen **Punktwert in Logs**. Die Verteil
 
 Dass `Chronos-2.parquet` vom kleinen Modell stammt, ist geprüft (`results/chronos_check.json`): Die Neuberechnung mit `chronos-2-small` stimmt exakt mit den gespeicherten Quantilen überein (Abweichung 0.0), die mit `chronos-2` nicht (0.084). **Alle Chronos-Ergebnisse im Zwischenbericht stammen vom kleinen Modell.**
 
-### Laufzeiten (Sekunden pro Coin, CPU)
+### Laufzeiten (Tagesdaten, Sekunden pro Coin, CPU)
+
+Auf Stundendaten gibt es ca. 24-mal mehr Ursprünge. Die Foundation Models laufen deshalb auf Kaggle/Colab mit GPU (T4: ca. 40–90 Min. pro Modell für vier Serien).
 
 | | RW | HAR | GARCH | Chronos-2 (small) | Chronos-2 (voll) | TimesFM-2.5 |
 |---|---|---|---|---|---|---|
@@ -352,7 +394,8 @@ Jeden Monat (`FREQ = "MS"`) wird neu trainiert und der nächste Monat out-of-sam
 
 - **Kein Leakage:** Die Prognose für Zieldatum *T* hat den Ursprung *T − h*. Dort sind nur Ziele ≤ *T − h* bekannt. Deshalb endet das Training *h* Tage (+ `GAP_DAYS`) vor dem ersten ausgewerteten Ziel.
 - **λ wird nur mit Daten vor dem Testmonat gewählt**, die Auswertung ist also nicht optimistisch wie beim festen Split.
-- **Kein k-fold CV:** Wegen der Autokorrelation und der überlappenden Ziele bei h = 5 würde Information aus der Zukunft ins Training gelangen.
+- **Kein k-fold CV:** Wegen der Autokorrelation und der überlappenden Ziele bei h = 24 würde Information aus der Zukunft ins Training gelangen.
+- Bei Stundendaten sind *h* und die Lücke in Stunden gemeint; `TUNE_DAYS` bleibt in Tagen.
 - **Optionen gegen Kontamination:** `TRAIN_START` beschränkt das Training auf Zieldaten nach einem Datum (z.B. dem Release der Foundation Models), `WINDOW_DAYS` macht das Fenster rollierend.
 - Auf echten Daten wird standardmässig **Nov. 2025 – Feb. 2026** ausgewertet (= bisherige val-Periode). Die Testperiode bleibt gesperrt: 04 bricht ab, wenn ein Fold Zieldaten ab `test_start` auswertet und `ALLOW_TEST = False` ist.
 - Auf synthetischen Daten gibt es keine Sperre. Ausgewertet werden die letzten 40 % der Daten mit quartalsweisem Neutraining.
@@ -373,7 +416,11 @@ Die Kombination ist ein eigener Wert, nicht einfach das beste Modell. Sie liegt 
 
 ### Die Features (Input des Gates)
 
-Die Features sind in **Gruppen** organisiert, die in `03_features` (`GROUPS`) einzeln an- und abgeschaltet werden können. Mit dem 4er-Pool und den Standardeinstellungen sind es 6 Marktzustand + 3 Uneinigkeit + 2 × 3 jüngste Fehler + 1 Kalender = **16 Features** (plus allfällige `exo_*`). Mit `LEGACY = True` entstehen exakt die früheren 14.
+Die Features sind in **Gruppen** organisiert, die in `03_features` (`GROUPS`) einzeln an- und abgeschaltet werden können. Aktuell (`binance_1h`, Pool Chronos + TimesFM) sind es 6 Marktzustand + 1 Uneinigkeit + 2 jüngste Fehler + 7 Kalender + 3 Volumen + 3 DVOL + 3 Märkte = **25 Features**. Mit dem früheren 4er-Pool auf Tagesdaten waren es 16, mit `LEGACY = True` exakt die früheren 14.
+
+Die Fenster der Features sind in Tagen definiert und werden bei Stundendaten mit 24 multipliziert (z.B. $RV^{(22)}$ = Mittel der letzten 22 · 24 Stunden).
+
+> **Nur Zeitreihe, kein Feature Engineering:** In 06, 07 und 09 sieht das Gate keine dieser Marktfeatures, sondern nur die letzten 24 normierten log-Werte der Reihe (`raw_0` … `raw_23`) und die Uneinigkeit. In 04 testet die Ablation `[disagree, recent]` ("forecast only") dasselbe Prinzip: nur Features, die sich aus den Expertenprognosen selbst ableiten lassen.
 
 Alle Features sind am Ursprungstag *t* bekannt, es gibt also kein Leakage. Sie werden pro Coin und Tag berechnet und **pro Fold** mit Mittelwert und Standardabweichung der Trainingszeilen standardisiert (0 = durchschnittlich, +1 = eine Standardabweichung darüber). Fehlende Werte (Aufwärmphase) werden auf 0 gesetzt.
 
@@ -412,8 +459,12 @@ $L_m$ ist der exponentiell gewichtete QLIKE-Fehler (mind. 5 Werte), um *h* versc
 
 | Gruppe | Feature | misst |
 |---|---|---|
-| `calendar` | `weekend` | Zieldatum ist Samstag oder Sonntag (Krypto-Vola ist am Wochenende tiefer) |
-| `exo` | alle Spalten `exo_*` der Tagesdaten | externe Kovariaten, z.B. DVOL, Volumen, Funding-Rates oder das synthetische Regime-Signal. Werden in `01_daten` an die Tagesdaten gehängt und automatisch übernommen. |
+| `calendar` | `weekend` | Zielzeitpunkt ist Samstag oder Sonntag (Krypto-Vola ist am Wochenende tiefer) |
+| `calendar` (nur Stundendaten) | `hour_sin`, `hour_cos`, `us_open`, `fomc`, `cpi`, `event_day` | Uhrzeit (Tagesgang), US-Börse offen, Stunde der FOMC- bzw. CPI-Veröffentlichung, Tag mit Termin. Alle am **Zielzeitpunkt**; kein Leakage, weil die Termine lange im Voraus feststehen (`pipeline/exo.py`) |
+| `volume` | `exo_vol_logrel`, `exo_vol_trades_rel`, `exo_vol_taker` | Handelsvolumen und Trades relativ zum üblichen Niveau, Anteil aggressiver Käufer (aus den 1-Min-Kerzen) |
+| `dvol` | `exo_dvol_level`, `exo_dvol_vrp`, `exo_dvol_proxy` | Deribit DVOL (implizite Vola BTC/ETH), Varianz-Risikoprämie (DVOL vs. realisierte Vola), Markierung für SOL (kein eigener DVOL, ETH als Ersatz) |
+| `markets` | `exo_mkt_vix`, `exo_mkt_spx_ret`, `exo_mkt_closed` | VIX, Rendite der S&P-500-Futures, Markt geschlossen (Yahoo Finance) |
+| `exo` | alle Spalten `exo_*` | Obergruppe von `volume`, `dvol`, `markets` (nie zusammen mit ihnen verwenden), auf synthetischen Daten das Regime-Signal. Werden in `01_daten` angehängt (`exo.add_exo`). Yahoo liefert Stundendaten nur für ca. 730 Tage, der Cache in `data/raw/` ist deshalb die einzige Quelle für ältere Werte. |
 | `series` | `series_<SID>` (One-Hot) | Bias pro Coin. Standardmässig **aus**, in `GROUPS` aktivierbar. |
 
 **Keine Features:** `scale` = $RV^{(22)}_t$ dient nur zur Normierung des Pinball-Loss.
@@ -471,7 +522,7 @@ Die vergangenen 5 bzw. 22 Tage passen also nicht die Parameter an. Sie beschreib
 | **Statisch** | $\mathrm{softmax}(b)$, gleich für alle Tage | M |
 | **Statisch 365T** | wie oben, nur auf dem letzten Jahr (rollierend) | M |
 | **Gating linear** | $\mathrm{softmax}(b + Wx_t)$, jeden Tag anders, λ gewählt | M + M·k |
-| **Gating linear [Gruppe]** | lineares Gate mit nur einer Feature-Gruppe (`recent`, `market`, `exo`): Woher kommt ein allfälliger Gewinn? | |
+| **Gating linear [Gruppe]** | lineares Gate mit nur bestimmten Feature-Gruppen (`ABLATIONS` in 04: `[disagree, recent]`, `[disagree]`, `[recent]`, `[market]`, `[exo]`, `[volume]`, `[dvol]`, `[markets]`, `[calendar]`): Woher kommt ein allfälliger Gewinn? | |
 | **Gating MLP** | wie linear, mit versteckter Schicht, 3 Seeds | |
 
 Die Methoden ohne Parameter sind klassische Kombinationen aus der Literatur und schwer zu schlagen. Das Gate muss zeigen, dass es **darüber hinaus** etwas bringt. In `05_evaluation` wird jede Methode per Diebold-Mariano gegen Gleichgewicht, Statisch und den besten Experten getestet.
@@ -501,7 +552,7 @@ $$\mathcal{L} = \overline{\text{QLIKE}(y, \hat\mu)} + \alpha \cdot \overline{\te
 3. **Backpropagation**: Für jeden Parameter wird berechnet, in welche Richtung der Loss sinkt.
    *Beispiel:* Lag GARCH an Tagen mit hohem `logrv_dev` meist näher an der echten RV, steigt W[GARCH, logrv_dev]. Ist GARCH im Schnitt schlechter, sinkt b[GARCH].
 4. **L-BFGS** passt die Parameter an (full-batch, bis 500 Iterationen, Strong-Wolfe-Linesearch). Schritte 2–4 wiederholen, bis der Loss nicht mehr sinkt.
-5. **λ-Auswahl:** Training für jedes λ ∈ {1e-4, 1e-3, 1e-2, 1e-1, 1} auf `tune_fit`, behalten wird das λ mit dem kleinsten Loss auf `tune_eval` (Walk-Forward: die letzten 90 Tage vor dem Testmonat; fester Split: val).
+5. **λ-Auswahl:** Training für jedes λ ∈ {0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1} (04; in 06/07/09: 1e-4 … 1) auf `tune_fit`, behalten wird das λ mit dem kleinsten Loss auf `tune_eval` (Walk-Forward: die letzten 90 Tage vor dem Testmonat; fester Split: val).
 6. Mit dem gewählten λ auf dem ganzen Trainingsfenster neu fitten, dann die Gewichte für den Testmonat berechnen.
 
 Die Experten werden dabei **nicht** verändert, nur die Parameter des Gates. Im Walk-Forward wird das Gate jeden Monat neu trainiert (expandierendes Fenster), dazwischen bleibt es eingefroren. Gespeichert werden pro Fold das gewählte λ (`params.csv`), alle Tuning-Losses (`tuning.csv`), die Gewichte (`weights.parquet`) und die Koeffizienten des linearen Gates (`coef.parquet`).
@@ -533,7 +584,39 @@ Prüft, ob sich ein Gate überhaupt lohnen kann:
 
 ---
 
-## 11. Resource Check (`00_resource_check.ipynb`)
+## 11. Mehrere Domänen: Notebooks 06–09
+
+Das Betreuer-Feedback (neuer Datensatz, weitere Foundation Models, kein Feature Engineering, Forecast Combination Puzzle als mögliches Finding) führte zu vier eigenständigen Notebooks. Gemeinsam ist allen:
+
+- **Gleiche Perioden** wie 04: Ursprünge ab 01.01.2025, Auswertung Nov. 2025 – Feb. 2026 im monatlichen Walk-Forward, λ auf den letzten 90 Tagen vor dem Testmonat, Testperiode ab März 2026 gesperrt (Daten werden nur bis 28.02.2026 geladen).
+- **Gleiches Gate, ohne Feature Engineering:** Features sind nur die letzten 24 normierten log-Werte der Reihe (`raw_*`) und die Uneinigkeit der Experten.
+- **Pools:** "2 FMs (alt)" (Chronos, TimesFM), "4 FMs" (+ TiRex, FlowState) und "4 FMs + klassisch" (+ HAR/GARCH bzw. SNaive/SeasReg).
+- **Methoden:** Gleichgewicht, Auswahl (bester Experte im Training), Statisch, Gate linear, Gate linear [nur disagree], Gate MLP.
+- **Ablauf:** Expertenprognosen auf Kaggle (GPU T4, Internet an, "Save & Run All") oder Colab rechnen, das Ergebnis-ZIP lokal in `src/` entpacken. Lokal setzt `ONLY_CACHE` automatisch auf nur Cache, die Gates laufen auf der CPU. Ergebnisse: `results/forecasts/0X_res.parquet` (Prognosen aller Methoden) und `0X_wts.parquet` (Gewichte). Zum Neurechnen der Gates diese beiden Dateien löschen.
+
+| Notebook | Datensatz | Serien | Experten | Loss im Gate | Metrik |
+|---|---|---|---|---|---|
+| `06_new_models_and_TS` | `binance_1h_neu` | PAXGUSDT (Gold), EURUSDT, XRPUSDT, BNBUSDT; stündliche RV aus 1-Min-Kerzen, 07/2024 – 02/2026 | RW, HAR, GARCH, 4 FMs | QLIKE + Pinball | QLIKE |
+| `07_electricity` | `strom_1h` | Netzlast DE, FR, IT, ES (Energy-Charts-API, Fraunhofer ISE, CC BY 4.0), 15 Min → stündlich, 07/2024 – 02/2026 | RW, SNaive, SeasReg, 4 FMs | quadrierter Fehler / Niveau + Pinball | MAPE |
+| `08_correlation_vs_win` | alle drei Volatilitäts- und Stromdatensätze | – | nur die 4 FMs | – | – |
+| `09_wind` | `wind_1h` | Windstrom onshore DE, FR, ES, PL (Energy-Charts) | RW, SNaive, SeasReg, 4 FMs | wie 07 | sMAE = \|y − ŷ\| / mittleres Niveau |
+
+**Warum Strom und Wind?** Gesucht sind Domänen mit anderer Fehlerstruktur der Foundation Models. Stromlast ist stark saisonal (Tag, Woche) und gut vorhersagbar; die FMs machen dort deutlich verschiedenere Fehler als bei der Volatilität. Wind soll dazwischen liegen: wetterbedingt, aber mit Persistenz und Tagesgang. Temperatur wurde verworfen (negative Werte, kein Log, MAPE sinnlos). Für Wind wird Italien durch Polen ersetzt (wenig Onshore-Wind in Italien), und statt MAPE gilt der skalierte MAE, weil die Erzeugung in windstillen Stunden nahe 0 liegen kann.
+
+**Was 08 berechnet** (alle Volatilitätsanalysen mit `cap_quantiles`):
+
+1. **Fehlerkorrelation vs. Kombinationsgewinn:** pro Serie und Horizont die mittlere paarweise Korrelation der Log-Fehler der FMs und der Gewinn optimaler fester Gewichte gegenüber dem besten FM (bewusst ex post, als Obergrenze). Grafik `results/korrelation_vs_gewinn.png`.
+2. **Out-of-sample vs. Obergrenze:** wie viel von dieser Obergrenze die Walk-Forward-Methoden aus 06 und 07 tatsächlich erreichen (`results/oos_vs_obergrenze.png`).
+3. **Robustheit Strom:** mit und ohne Feiertage (24.12.–06.01.).
+4. **Zerlegung des Fehlers** in einen gemeinsamen Teil (Fehler des FM-Mittels) und einen modellspezifischen Teil (Abweichung jedes FMs vom Mittel). Kombinieren kann nur den modellspezifischen Teil verkleinern.
+5. **Haupttest:** Gate linear vs. Auswahl, Diebold-Mariano, Holm-korrigiert über Domänen und Horizonte; dazu Ablationen Gate vs. Statisch und Statisch vs. Auswahl.
+6. **Diagnosen:** Werden die Trainings-Losses von wenigen Stunden dominiert? Wie extrem sind die Quantile der FMs (führte zu `cap_quantiles`)?
+
+Ergebnisse in Abschnitt 16.
+
+---
+
+## 12. Resource Check (`00_resource_check.ipynb`)
 
 Prüft vor dem Ausbau, ob weitere Foundation Models lokal laufen. Die Experten bleiben eingefroren, es gibt nur Forward-Passes auf synthetischen Daten (Kontext 512, Horizont 64, 32 Serien).
 
@@ -555,9 +638,9 @@ Gemessen werden Ladezeit, Peak-RAM, Inferenzlatenz pro Batchgrösse und das Outp
 
 ---
 
-## 12. TimesFM-2.5 und Chronos-Check (`archiv/02_timesfm.ipynb`)
+## 13. TimesFM-2.5 und Chronos-Check (Tagesdaten, Archiv)
 
-> Die Experten-Klassen dieses Notebooks sind jetzt in `02_experten.ipynb`. Der Chronos-Check und die Auswertung der Einzelmodelle bleiben im Archiv.
+> Notebook `archiv/02_timesfm.ipynb`, Stand **Tagesdaten** (h = 1/5 Tage, fester Split). Die Experten-Klassen sind jetzt in `pipeline/experts.py`. Der Chronos-Check, die Quantil-Ergänzung und die Auswertung der Einzelmodelle bleiben als Dokumentation hier.
 
 Dieses Notebook ergänzt den Pool um **TimesFM-2.5** als vierten Experten und prüft, mit welcher Chronos-Variante die bisherigen Prognosen entstanden sind. Es verwendet exakt das Setup aus `archiv/volatilitaet_chronos2_har_garch.ipynb` (gleiche Ursprünge, Horizonte, 21 Quantile). **Bestehende Dateien werden nicht überschrieben**, neue Prognosen kommen als zusätzliche Dateien dazu.
 
@@ -649,9 +732,11 @@ Gelernte statische Gewichte:
 
 ---
 
-## 13. Live-Prognose-App (`app/`)
+## 14. Live-Prognose-App (`app/`)
 
-Die Notebooks bewerten Prognosen für vergangene Tage. Die App macht **echte Prognosen für die Zukunft**: Auf Knopfdruck lädt sie die neuesten Binance-Daten und prognostiziert die Volatilität für den nächsten Tag und in 5 Tagen. Zusätzlich zeigt sie den Kurs und eine **Kursspanne**, die aus der Vola-Prognose abgeleitet ist.
+Die Notebooks bewerten Prognosen für vergangene Zeitpunkte. Die App macht **echte Prognosen für die Zukunft**: Auf Knopfdruck lädt sie die neuesten 1-Minuten-Kerzen von Binance, berechnet die stündliche RV und prognostiziert sie **1 und 24 Stunden** voraus (Datensatz `binance_1h`). Zusätzlich zeigt sie den Kurs und eine **Kursspanne**, die aus der Vola-Prognose abgeleitet ist.
+
+> **Stand:** Die App wurde von Tages- auf Stundendaten umgestellt. Voraussetzung ist, dass 01–04 mit `DATASET = "binance_1h"` gelaufen sind. Pool, Features und λ kommen aus `src/results/runs/binance_1h_walkforward/config.json`. Alles Live-Geschriebene liegt in `src/data/live/binance_1h/`; die alten Tagesdaten in `src/data/live/` bleiben unberührt. Die Beschreibung unten und die Kalibrierungstabelle der Kursspanne stammen noch aus der Tagesversion; die Logik (Monatsmodelle wie im Walk-Forward, Statisch als Hauptprognose, Gate parallel, Testperiode gesperrt, t0/Timestral nur separat) ist gleich geblieben, die Zeiteinheit ist jetzt die Stunde.
 
 ### Starten
 
@@ -662,7 +747,7 @@ cd app
 streamlit run app.py
 ```
 
-Die App öffnet sich im Browser. Voraussetzungen: die Prognosen der Experten des Pools in `src/results/` (aus `02_experten.ipynb`) und `src/results/runs/binance_walkforward/config.json` (aus `04_training.ipynb`, in Git). Aus dieser Konfiguration übernimmt die App Pool, Features, λ-Kandidaten und Tuning-Tage. Fehlt sie, gelten die Standardwerte.
+Die App öffnet sich im Browser. Voraussetzungen: die Prognosen der Experten des Pools in `src/results/forecasts/binance_1h/` (aus `02_experten.ipynb`) und `src/results/runs/binance_1h_walkforward/config.json` (aus `04_training.ipynb`, in Git). Aus dieser Konfiguration übernimmt die App Pool, Features, λ-Kandidaten und Tuning-Tage. Fehlt sie, gelten die Standardwerte.
 
 ### Was die App macht
 
@@ -736,7 +821,7 @@ Jede Prognose wird gespeichert, **bevor** der Zieltag eintritt. Kontamination is
 
 ---
 
-## 14. Konfigurationsparameter
+## 15. Konfigurationsparameter
 
 Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 02–05 ist `DATASET` die wichtigste.
 
@@ -746,9 +831,10 @@ Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 
 |---|---|---|
 | `SOURCE` | `"binance"` | `"binance"` oder `"synthetic"` |
 | `SYMBOLS` | BTCUSDT, ETHUSDT, SOLUSDT | Coins |
-| `KLINE_INTERVAL` | 5m | Kerzenlänge für die RV |
-| `FIRST_MONTH` / `LAST_MONTH` | 2020-01 / 2026-08 | Datenzeitraum |
-| `MIN_BARS_PER_DAY` | 270 | Mindestanzahl Bars (von 288), sonst wird der Tag verworfen |
+| `KLINE_INTERVAL` / `FREQ` | 1m / 1h | Kerzenlänge für die RV, Länge eines RV-Intervalls |
+| `FIRST_MONTH` / `LAST_MONTH` | 2023-01 / 2026-08 | Datenzeitraum |
+| `MIN_BARS` | 54 | Mindestanzahl Bars pro Stunde (von 60), sonst wird die Stunde verworfen (Tagesdaten: `MIN_BARS_PER_DAY` = 270 von 288) |
+| `DATASET` | `"binance_1h"` | Name des Datensatzes (synthetisch: `syn_<Szenario>_s<Seed>`) |
 | `TEST_START` | 2026-03-01 | Zieldaten ab hier sind gesperrt |
 | `SCENARIO` | `"regime_signal"` | synthetisches Szenario: `null`, `regime_signal`, `regime_nosignal` (Abschnitt 4) |
 | `N_SERIES` / `N_DAYS` / `SEED` | 3 / 2500 / 0 | Anzahl und Länge der synthetischen Reihen, Zufallsseed |
@@ -759,19 +845,23 @@ Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 
 |---|---|---|
 | `MODELS` | RW, EWMA, HAR, GARCH, Chronos-2-full, TimesFM-2.5, t0-gamma, Timestral-209M | Experten, deren Prognosen sichergestellt werden (t0 und Timestral nur als Historie, nicht im Pool) |
 | `SKIP_MISSING_PACKAGES` | True | Foundation Model nicht installiert → überspringen |
-| `HORIZONS` | [1, 5] | Prognosehorizonte in Tagen (wie die nächsten vier: in `pipeline/common.py`, gilt auch für die App) |
-| `MIN_HISTORY` | 500 | Tage Historie vor dem ersten Ursprung |
-| `EST_WINDOW` | 1000 | rollierendes Schätzfenster für RW, EWMA, HAR, GARCH |
-| `GARCH_REFIT_EVERY` | 5 | GARCH alle 5 Ursprünge neu schätzen |
-| `CONTEXT` / `FM_BATCH` | 1024 / 128 | Kontext und Batchgrösse der Foundation Models |
+| `HORIZONS` | [1, 24] | Prognosehorizonte in Stunden (wie die nächsten: in `pipeline/common.py`, gilt auch für die App) |
+| `MIN_HISTORY` | 1440 | Stunden Historie vor dem ersten Ursprung (60 Tage) |
+| `ORIGIN_START` | 2025-01-01 | erster Ursprung |
+| `EST_WINDOW` | 2160 | rollierendes Schätzfenster für RW, EWMA, HAR, GARCH (90 Tage) |
+| `GARCH_REFIT_EVERY` | 24 | GARCH alle 24 Ursprünge (täglich) neu schätzen |
+| `CONTEXT` / `FM_BATCH` | 1024 / 128 | Kontext und Batchgrösse der Foundation Models (06/07/09 auf GPU: Batch 512) |
+
+Änderungen in `common.py` rechnen gespeicherte Prognosen nicht neu: Die betroffenen Parquet-Dateien löschen.
 
 ### `03_features.ipynb`
 
 | Parameter | Wert | Bedeutung |
 |---|---|---|
-| `POOL` | Chronos-2-full, TimesFM-2.5, HAR, GARCH (synthetisch: HAR, GARCH, RW) | Experten, die kombiniert werden |
-| `GROUPS` | market, disagree, recent, calendar, exo | Feature-Gruppen (+ `series` für einen Bias pro Serie) |
-| `HALFLIVES` | [10, 60] | Halbwertszeiten der `recent`-Features |
+| `POOL` | Chronos-2-full, TimesFM-2.5 (synthetisch: HAR, GARCH, RW) | Experten, die kombiniert werden |
+| `GROUPS` | market, disagree, recent, calendar, volume, dvol, markets (synthetisch: … exo) | Feature-Gruppen (+ `series` für einen Bias pro Serie). `exo` nie zusammen mit `volume`/`dvol`/`markets` |
+| `CALENDAR` | weekend, hour, us_open, events | Kalender-Features am Zielzeitpunkt (Tagesdaten: nur weekend) |
+| `HALFLIVES` | [10, 60] | Halbwertszeiten der `recent`-Features in Tagen (Stundendaten: × 24) |
 | `LEVEL` | `"relative"` | `level_rel` statt absolutem `level` |
 | `DROP_REDUNDANT` | True | bei `disagree`/`recent` den letzten Experten weglassen |
 | `LEGACY` | False | True: exakt die 14 Features aus `archiv/01_kombination.ipynb` |
@@ -791,9 +881,9 @@ Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 
 | `TRAIN_END` / `VAL_END` | 2025-10-31 / 2026-02-28 | nur für `SPLIT = "fixed"` |
 | `ALLOW_TEST` | False | Sperre der Testperiode |
 | `ALPHA` | 1.0 | Gewicht des Pinball-Terms im Loss |
-| `LAMBDAS` | 1e-4 … 1 | Kandidaten für die L2-Regularisierung |
+| `LAMBDAS` | 0, 1e-6 … 1 | Kandidaten für die L2-Regularisierung |
 | `MLP` / `MLP_HIDDEN` / `MLP_SEEDS` | True / 16 / 3 | MLP-Gate an/aus, Neuronen, Anzahl Seeds |
-| `ABLATIONS` | [recent], [market], [exo] | lineare Gates mit nur einer Feature-Gruppe |
+| `ABLATIONS` | [disagree, recent], [disagree], [recent], [market], [exo], [volume], [dvol], [markets], [calendar] | lineare Gates mit nur diesen Feature-Gruppen; `[disagree, recent]` = "forecast only" (nur Features aus den Expertenprognosen) |
 | `LEGACY` | False | True: Methoden genau wie im alten Notebook |
 
 ### `05_evaluation.ipynb`
@@ -806,13 +896,92 @@ Alle Einstellungen stehen in der ersten Code-Zelle des jeweiligen Notebooks. In 
 
 ---
 
-## 15. Stand, Einschränkungen und nächste Schritte
+## 16. Stand, Einschränkungen und nächste Schritte
 
-Details und Grafiken: `reports/zwischenstand.html`.
+Alle Zahlen: Walk-Forward mit monatlichem Neutraining, ausgewertet Nov. 2025 – Feb. 2026, λ nur mit Daten vor dem jeweiligen Monat gewählt, Volatilität mit `cap_quantiles` (k = 8). Stand 26.11.2026.
 
-### Bisherige Ergebnisse
+### Kernergebnis: Fehlerkorrelation bestimmt den Nutzen der Kombination (08)
 
-**Neue Pipeline, Walk-Forward auf echten Daten** (`binance_walkforward`: monatliches Neutraining, ausgewertet Nov. 2025 – Feb. 2026, λ nur mit Daten vor dem jeweiligen Monat gewählt, 16 Features):
+| Domäne | mittlere Fehlerkorrelation der FMs | Gewinn fester Gewichte ex post (Obergrenze) | gemeinsamer Fehler | modellspezifischer Anteil |
+|---|---|---|---|---|
+| Volatilität (7 Serien) | 0.93 – 0.98 | 0 – 1.7 % | 58–60 % (h=1) / 81–84 % (h=24) | 2 – 5 % |
+| Stromlast (4 Länder) | 0.55 – 0.85 | 1.4 – 11.6 % | 1 % / 5 % | 20 – 32 % |
+
+- **Rangkorrelation** zwischen Fehlerkorrelation und Kombinationsgewinn über alle 22 Serie-Horizont-Paare: **−0.76**.
+- Bei der Volatilität liegen alle FMs fast immer gleichzeitig und in dieselbe Richtung daneben. Kombinieren kann nur den modellspezifischen Teil des Fehlers verkleinern, und der ist dort winzig. Die FMs sind sich zwar in absoluten Zahlen *uneiniger* als beim Strom (8–19 % vs. 0.7–2.5 %), aber der gemeinsame Fehler ist um ein Vielfaches grösser.
+- **Haupttest** (Gate linear vs. Auswahl = bester Experte im Training, Pool 4 FMs, Holm-korrigiert):
+
+| | h=1 | h=24 |
+|---|---|---|
+| Strom | **−11.8 %** (p_Holm < 0.001) | **−2.4 %** (p_Holm = 0.024) |
+| Volatilität | −2.4 % (p_Holm = 0.148) | +0.6 % (p_Holm = 0.744) |
+
+- **Forecast Combination Puzzle:** gilt für die Volatilität (gleiche Gewichte oder das beste Modell sind nicht zu schlagen), nicht für den Strom.
+- **Routing vs. Mischen:** Auch beim Strom ist das Gate kaum besser als feste Gewichte. Der Gewinn kommt vom Mischen verschiedener Modelle, nicht davon, je nach Situation umzuschalten.
+
+### Volatilität BTC/ETH/SOL, Stundendaten (04/05, Pool Chronos + TimesFM)
+
+rel. QLIKE gegenüber dem Random Walk (< 1 = besser):
+
+| | h=1 | h=24 |
+|---|---|---|
+| Chronos-2 (voll) | 0.731 | 0.769 |
+| TimesFM-2.5 | 0.752 | 0.736 |
+| Gleichgewicht | 0.730 | 0.735 |
+| Statisch | 0.732 | 0.734 |
+| Gating linear | 0.723 | 0.755 |
+| Gating linear [disagree, recent] ("forecast only") | 0.730 | 0.749 |
+| Gating linear [market] | 0.727 | 0.778 |
+| Gating linear [volume] | 0.727 | 0.728 |
+| Gating MLP | 0.721 | 0.760 |
+
+- **Gating linear vs. Gleichgewicht:** −0.94 % bei h=1 (p = 0.114), +2.75 % bei h=24 (p = 0.27). Kein Gate schlägt gleiche Gewichte signifikant.
+- **"Forecast only"** (nur Uneinigkeit und jüngste Fehler, keine Marktdaten) ist gleich gut wie Gleichgewicht (+0.03 %, p = 0.82): Aus den Prognosen allein lässt sich nicht lernen, wann welches FM besser ist.
+- **Vor `cap_quantiles`** sah es anders aus: Statisch gab TimesFM 100 % (rel. QLIKE 0.752), mehrere Ablationen ([calendar], [dvol], [recent]) schienen zu schaden, und das Gate schien bei h=1 signifikant besser als Gleichgewicht (−1.08 %, p = 0.043). Das waren Artefakte der Chronos-Ausreisser.
+
+### Neue Serien und Foundation Models (06, `binance_1h_neu`)
+
+QLIKE relativ zum besten Einzelexperten des Pools (negativ = besser):
+
+| Pool 4 FMs | h=1 | h=24 |
+|---|---|---|
+| bester Experte | TiRex | Chronos-2 |
+| Gleichgewicht | +0.7 % | +0.4 % |
+| Statisch | −0.7 % | 0.0 % (100 % Chronos) |
+| Gate linear | −0.2 % | +0.6 % |
+| Gate linear [nur disagree] | −0.2 % | −1.6 % |
+| Gate MLP | −0.5 % | +1.3 % |
+
+- Auch mit vier FMs aus drei Architekturen (Transformer, xLSTM, State-Space) bleibt der Gewinn bei der Volatilität unter 2 %.
+- Pool "4 FMs + HAR/GARCH" ist deutlich schlechter (Gleichgewicht +37 % bei h=1). GARCH hat auf diesen Serien ebenfalls einen auffällig hohen Pinball-Loss, den k = 8 nicht kappt. "Auswahl" wählt dort HAR, weil HAR im Training den kleinsten QLIKE hat, auf der Auswertung aber viel schlechter ist.
+- Ausreisser out-of-sample: BNB h=24 −4 bis −6.5 % gegenüber dem besten FM, weil Statisch und Gate auf Chronos setzen, das für BNB nicht das beste ist. Das ist normales Auswahlrisiko.
+
+### Stromlast (07, `strom_1h`)
+
+MAPE der Einzelexperten (Mittel über DE, FR, IT, ES): h=1 TiRex 0.77 %, FlowState ≈ 0.78 %, Chronos ≈ 0.95 %, SeasReg 3.4 %, SNaive 7 %; h=24 Chronos 3.30 %, FlowState ≈ 3.6 %.
+
+| Pool 4 FMs, MAPE vs. bester Experte | h=1 | h=24 |
+|---|---|---|
+| Gleichgewicht | −7.6 % | +2.5 % |
+| Statisch | −10.1 % | −2.7 % |
+| Gate linear | −10.8 % | −2.4 % |
+| Gate linear [nur disagree] | −10.2 % | −2.4 % |
+
+- Gelernte feste Gewichte: h=1 ca. TiRex 35 %, FlowState 40 %, Chronos 22 %, TimesFM 3 %; h=24 Chronos 72 %, TiRex und FlowState je 13 %.
+- SNaive und SeasReg bekommen im Pool "4 FMs + klassisch" fast kein Gewicht. Gleichgewicht wird mit ihnen viel schlechter (+127 % bei h=1).
+- Fehlerkorrelation bei h=1: zwischen den FMs 0.49–0.74, zwischen FMs und klassischen Modellen 0.04–0.26.
+- Walk-Forward erreicht fast die ganze Obergrenze fester Gewichte ex post (h=1: −10.3 %); das Oracle (pro Stunde der beste Experte) läge bei −53 %.
+- Robust ohne Feiertage bei h=1; der kleine Gewinn bei h=24 hängt teilweise an den Feiertagen.
+
+### Windstrom (09, `wind_1h`)
+
+Notebook vorbereitet, Expertenprognosen noch nicht gerechnet (Kaggle, ca. 4–5 h). Hypothese: Fehlerkorrelation zwischen Strom und Volatilität, damit ein dritter Punkt im Diagramm von 08.
+
+### Frühere Ergebnisse auf Tagesdaten
+
+Details und Grafiken: `reports/zwischenstand.html`. Die folgenden Abschnitte beziehen sich auf den Tagesdatensatz `binance` (h = 1/5 Tage) und wurden **vor** `cap_quantiles` gerechnet.
+
+**Walk-Forward auf Tagesdaten** (`binance_walkforward`, 16 Features):
 
 | | rel. QLIKE h=1 | rel. QLIKE h=5 | dQLIKE gegen Statisch h=1 / h=5 (p) |
 |---|---|---|---|
@@ -843,9 +1012,9 @@ Details und Grafiken: `reports/zwischenstand.html`.
 - **Das MLP findet hier nichts**, obwohl ein Signal da ist. Auf Daten dieser Grösse ist das lineare Gate klar vorzuziehen.
 - **Folgerung für die echten Daten:** Dass das Gate dort nicht gewinnt, liegt eher am fehlenden Signal in den Features als an der Methode.
 
-**Mit 4 Experten, fester Split (Details in Abschnitt 12):**
+**Mit 4 Experten, fester Split (Details in Abschnitt 13):**
 
-- **Statische Gewichte sind mindestens so gut wie das beste Einzelmodell:** im Durchschnitt ca. 2–4 % tieferer QLIKE, aber nicht bei jedem Coin und kaum signifikant (siehe Abschnitt 12).
+- **Statische Gewichte sind mindestens so gut wie das beste Einzelmodell:** im Durchschnitt ca. 2–4 % tieferer QLIKE, aber nicht bei jedem Coin und kaum signifikant (siehe Abschnitt 13).
 - **Das Gate bringt darüber hinaus keinen statistisch nachweisbaren Gewinn** (Diebold-Mariano gegen Statisch: alle p ≥ 0.14). Der Vorsprung des linearen Gates bei h=1 hängt fast nur an ETH. Das MLP wird zu Statisch.
 - **Die Experten bilden zwei Gruppen:** Foundation Models (Fehlerkorrelation 0.98–0.99) und Ökonometrie (0.84–0.93). Der Nutzen der Kombination entsteht durch die Diversität zwischen den Gruppen, nicht durch tägliches Routing.
 - Die bisherigen Chronos-Prognosen und alle Chronos-Zahlen im Zwischenbericht stammen von `chronos-2-small`. Ab jetzt wird `Chronos-2-full` verwendet.
@@ -863,27 +1032,30 @@ Details und Grafiken: `reports/zwischenstand.html`.
 
 ### Nächste Schritte
 
-1. ~~TimesFM-2.5 als Experten hinzufügen~~ (erledigt, siehe Abschnitt 12).
-2. ~~Walk-Forward statt eines festen Splits~~ (erledigt, `04_training`). Offen: eine zweite, längere Auswertungsperiode mit einem Pool ohne Kontamination (ältere Foundation Models wie Chronos-Bolt oder TimesFM 1.0, Release-Daten prüfen), damit die saubere Periode früher beginnt.
-3. ~~Synthetische Daten zum Testen der Methodik~~ (erledigt, `01_daten`). Offen: `null` und `regime_nosignal` laufen lassen, mehrere Seeds.
-4. **Experten und Features mit anderer Information:** Weitere Modelle, die nur die vergangene RV sehen (Toto, Moirai), bringen vermutlich wenig neue Diversität. Vielversprechender sind zusätzliche Informationen, z.B. implizite Volatilität (Deribit DVOL für BTC und ETH), Handelsvolumen oder Funding-Rates. Chronos-2 kann solche Zusatzreihen (Kovariaten) direkt verarbeiten. Als Gate-Features lassen sie sich als Spalten `exo_*` in `01_daten` anhängen.
-5. **Mehr Serien und Domänen:** weitere Coins von Binance (geringer Aufwand), danach Aktien, Indizes, FX, öffentliche Benchmarks.
-6. **Längere saubere Evaluation:** Mit jedem Monat neuer Daten wird die Walk-Forward-Auswertung aussagekräftiger.
-7. **Zeitkomponente:** ~~Wochenende als Feature~~ und ~~regelmässiges Nachtrainieren~~ (erledigt). Monats-Saisonalität eher nicht (zu wenige Jahre, Overfitting-Gefahr).
-8. ~~Gate parallel in der App~~ (erledigt: monatlich neu trainiert wie im Walk-Forward, Abschnitt 13). Nach einigen Monaten im Logbuch zeigt sich, ob es live besser ist als «Statisch».
-9. **Gate verfeinern:** Sparse Top-k-Gating (Shazeer et al. 2017), ein Gate über alle Horizonte mit h als Feature, Gewichte pro Quantil.
-10. **Testperiode** erst ganz am Ende öffnen (`ALLOW_TEST = True` in `04_training`, `EVAL_END = None`).
+1. **Wind rechnen (09):** auf Kaggle ausführen, ZIP lokal entpacken, 08 um `wind_1h` (Loss sMAE) in `SETS` und `OOS` erweitern. Vorher prüfen, wie viele Stunden mit Erzeugung ≤ 0 wegfallen.
+2. **Testperiode öffnen**, sobald die Methode feststeht (`ALLOW_TEST = True` in 04, `EVAL_END = None`; in 06/07/09 `LAST_MONTH`/`LAST_DAY` und `EVAL_END` erweitern). Erst damit gibt es einen echten Out-of-sample-Beleg für das Kernergebnis.
+3. **Mehr Datenpunkte für 08:** weitere Domänen mit positiver Zielgrösse (z.B. Gaspreise, Verkehr), damit die Rangkorrelation −0.76 auf mehr als zwei Domänen beruht.
+4. **Kontamination prüfen:** Hängt die hohe Fehlerkorrelation bei Krypto damit zusammen, dass alle FMs ähnliche Daten im Pretraining gesehen haben? Vergleich mit Serien, die kaum in Trainingskorpora stehen dürften.
+5. **A-priori-Vorhersage:** Lässt sich der Kombinationsgewinn aus der Fehlerkorrelation auf den **Trainingsdaten** vorhersagen (statt ex post)?
+6. **GARCH-Pinball** in `binance_1h_neu` untersuchen (mittlerer Pinball ca. 27 statt ca. 0.7, von k = 8 nicht erfasst).
+7. Synthetische Daten: `null` und `regime_nosignal` laufen lassen, mehrere Seeds.
+8. **Gate verfeinern** (nur falls es irgendwo Routing-Signal gibt): Sparse Top-k-Gating (Shazeer et al. 2017), ein Gate über alle Horizonte mit h als Feature, Gewichte pro Quantil.
+9. App: nach einigen Monaten im Logbuch prüfen, ob das Gate live besser ist als «Statisch».
+
+Erledigt: TimesFM-2.5, Walk-Forward, synthetische Daten, Stundendaten mit exogenen Features, weitere FMs (TiRex, FlowState), neue Serien (Gold, EUR/USD, XRP, BNB), zweite Domäne (Strom), Gate ohne Feature Engineering, Korrelation vs. Gewinn, `cap_quantiles`.
 
 ### Offene technische Punkte
 
-- `requirements.txt` vervollständigen (`psutil`, `timesfm`, `uni2ts`, `gluonts`). `arch`, `scipy`, `requests`, `tqdm` und `jupyter` sind ergänzt.
+- `requirements.txt` vervollständigen (`psutil`, `timesfm`, `tirex-ts`, `granite-tsfm`, `uni2ts`, `gluonts`). `arch`, `scipy`, `requests`, `tqdm` und `jupyter` sind ergänzt.
+- Die Markdown-Zellen in `08_correlation_vs_win.ipynb` nennen teilweise noch Zahlen von **vor** `cap_quantiles` (z.B. Volatilität −0.7 % / +0.8 % im Haupttest). Die Code-Ausgaben sind aktuell.
+- `src/results/runs/binance_1h_walkforward/forecasts.parquet` ist ca. 60 MB (GitHub warnt ab 50 MB). Langfristig in `.gitignore` oder Git LFS.
 - ~~Dokumentieren, welche Chronos-2-Variante die gespeicherten Prognosen erzeugt hat~~ (erledigt: `chronos-2-small`, siehe `results/chronos_check.json`).
 - ~~`CHRONOS_MODEL` fest auf `amazon/chronos-2` setzen~~ (erledigt: `02_experten` unterscheidet `Chronos-2-full` und `Chronos-2` explizit).
 - Modellversionen festhalten: Chronos-2, TimesFM-2.5 und Moirai-2.0 sind neuere Generationen als die in den Originalpapern evaluierten.
 
 ---
 
-## 16. Glossar
+## 17. Glossar
 
 | Begriff | Bedeutung |
 |---|---|
@@ -901,6 +1073,8 @@ Details und Grafiken: `reports/zwischenstand.html`.
 | **λ (Lambda)** | Stärke der Regularisierung: hält das Gate nahe an statischen Gewichten |
 | **Leakage** | Information aus der Zukunft gelangt unbemerkt ins Training |
 | **Kontamination** | ein Foundation Model hat die Evaluationsdaten im Pretraining gesehen |
+| **Forecast Combination Puzzle** | empirischer Befund (Stock & Watson 2004, Timmermann 2006): einfache gleiche Gewichte schlagen geschätzte Gewichte oft |
+| **sMAE** | skalierter MAE, \|y − ŷ\| / mittleres Niveau; Metrik für Windstrom (robust bei Werten nahe 0) |
 | **Oracle** | wählt rückblickend jeden Tag den besten Experten; theoretische Obergrenze |
 | **Fehlerkorrelation** | wie stark zwei Experten gleichzeitig in dieselbe Richtung danebenliegen; hoch = wenig Nutzen in der Kombination |
 | **Kovariate** | zusätzliche Zeitreihe, die ein Modell neben der Zielgrösse sieht (z.B. implizite Vola, Volumen) |
@@ -913,4 +1087,8 @@ Details und Grafiken: `reports/zwischenstand.html`.
 - Duan (1983): Smearing Estimate (Rücktransformation aus Logs)
 - Diebold & Mariano (1995): Comparing Predictive Accuracy
 - Shazeer et al. (2017): Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer
+- Bates & Granger (1969): The Combination of Forecasts
+- Stock & Watson (2004): Combination Forecasts of Output Growth in a Seven-Country Data Set
+- Timmermann (2006): Forecast Combinations (Handbook of Economic Forecasting)
+- Holm (1979): A Simple Sequentially Rejective Multiple Test Procedure
 - Ansari et al.: Chronos (Amazon), Das et al.: TimesFM (Google), Woo et al.: Moirai (Salesforce)
